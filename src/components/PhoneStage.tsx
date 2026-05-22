@@ -1,5 +1,5 @@
-import { Check, X } from 'lucide-react'
-import { useState, type MouseEvent } from 'react'
+import { Check, Maximize2, Minimize2, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { useEffect, useState, type MouseEvent, type WheelEvent } from 'react'
 import type { AgentAction } from '../lib/actions'
 import { buildActionPreview } from '../lib/actions'
 import type { AppCopy } from '../lib/appCopy'
@@ -19,7 +19,34 @@ export function PhoneStage({
 }) {
   const [draftAction, setDraftAction] = useState<AgentAction | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [fullscreen, setFullscreen] = useState(false)
+  const hasScreenshot = displayedScreenshot !== null
+  const isFullscreenPreview = hasScreenshot && fullscreen
   const stageLabel = displayedScreenshot ? copy.androidScreenshot : copy.noScreenshot
+  const zoomPercent = Math.round(zoom * 100)
+  const surfacePercent = hasScreenshot ? zoomPercent : 100
+
+  useEffect(() => {
+    if (!isFullscreenPreview) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setFullscreen(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isFullscreenPreview])
 
   function pointerToScreenPoint(event: MouseEvent<HTMLElement>) {
     if (!displayedScreenshot) {
@@ -69,42 +96,74 @@ export function PhoneStage({
     setDragStart(null)
   }
 
+  function changeZoom(delta: number) {
+    setZoom((current) => clamp(Math.round((current + delta) * 100) / 100, 1, 3))
+  }
+
+  function zoomWithWheel(event: WheelEvent<HTMLElement>) {
+    if (!event.ctrlKey && !event.metaKey) {
+      return
+    }
+
+    event.preventDefault()
+    changeZoom(event.deltaY < 0 ? 0.25 : -0.25)
+  }
+
   return (
-    <section className="phone-stage" aria-label={stageLabel}>
-      {displayedScreenshot ? (
-        <div className="phone-frame">
-          <ScreenshotLightbox
-            screenshot={displayedScreenshot}
-            title={copy.androidScreenshot}
-            thumbnailAlt={copy.androidScreenshot}
-            expandedAlt={copy.expandedAndroidScreenshot}
-            openButtonLabel={copy.openScreenshotFor(copy.androidScreenshot)}
-            dialogLabel={copy.screenshotDialogFor(copy.androidScreenshot)}
-            closeLabel={copy.closeScreenshotPreview}
-            thumbnailClassName="phone-screenshot-button"
-          >
-            {pendingStep ? (
-              <ActionOverlay action={pendingStep.action} screen={displayedScreenshot.screen} />
-            ) : null}
-            {draftAction ? (
-              <ActionOverlay action={draftAction} screen={displayedScreenshot.screen} />
-            ) : null}
-            {onRunInteractiveAction ? (
-              <span
-                aria-label={copy.screenshotInteractionLayer}
-                className="screenshot-command-layer"
-                role="presentation"
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }}
-                onMouseDown={startInteraction}
-                onMouseLeave={() => setDragStart(null)}
-                onMouseUp={finishInteraction}
-              />
-            ) : null}
-          </ScreenshotLightbox>
-          {draftAction ? (
+    <section
+      className={isFullscreenPreview ? 'phone-stage phone-stage-fullscreen' : 'phone-stage'}
+      aria-label={stageLabel}
+    >
+      <>
+        <div
+          className={isFullscreenPreview ? 'phone-frame phone-frame-fullscreen' : 'phone-frame'}
+          role={isFullscreenPreview ? 'dialog' : undefined}
+          aria-modal={isFullscreenPreview ? true : undefined}
+          aria-label={isFullscreenPreview ? copy.fullscreenPhonePreview : undefined}
+        >
+          <div className="phone-viewport" onWheel={zoomWithWheel}>
+            <div
+              className="phone-zoom-surface"
+              style={{ height: `${surfacePercent}%`, width: `${surfacePercent}%` }}
+            >
+              {displayedScreenshot ? (
+                <ScreenshotLightbox
+                  screenshot={displayedScreenshot}
+                  title={copy.androidScreenshot}
+                  thumbnailAlt={copy.androidScreenshot}
+                  expandedAlt={copy.expandedAndroidScreenshot}
+                  openButtonLabel={copy.openScreenshotFor(copy.androidScreenshot)}
+                  dialogLabel={copy.screenshotDialogFor(copy.androidScreenshot)}
+                  closeLabel={copy.closeScreenshotPreview}
+                  thumbnailClassName="phone-screenshot-button"
+                >
+                  {pendingStep ? (
+                    <ActionOverlay action={pendingStep.action} screen={displayedScreenshot.screen} />
+                  ) : null}
+                  {draftAction ? (
+                    <ActionOverlay action={draftAction} screen={displayedScreenshot.screen} />
+                  ) : null}
+                  {onRunInteractiveAction ? (
+                    <span
+                      aria-label={copy.screenshotInteractionLayer}
+                      className="screenshot-command-layer"
+                      role="presentation"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                      onMouseDown={startInteraction}
+                      onMouseLeave={() => setDragStart(null)}
+                      onMouseUp={finishInteraction}
+                    />
+                  ) : null}
+                </ScreenshotLightbox>
+              ) : (
+                <div className="phone-screen-placeholder" aria-hidden="true" />
+              )}
+            </div>
+          </div>
+          {displayedScreenshot && draftAction ? (
             <div className="screenshot-command-draft">
               <span>{previewInteractiveAction(draftAction)}</span>
               <button
@@ -126,7 +185,47 @@ export function PhoneStage({
             </div>
           ) : null}
         </div>
-      ) : null}
+        {hasScreenshot ? (
+          <div className="phone-zoom-controls" aria-label={copy.screenshotZoomControls}>
+            <button
+              type="button"
+              aria-label={copy.zoomOutScreenshot}
+              title={copy.zoomOutScreenshot}
+              onClick={() => changeZoom(-0.25)}
+              disabled={zoom <= 1}
+            >
+              <ZoomOut size={14} />
+            </button>
+            <span>{zoomPercent}%</span>
+            <button
+              type="button"
+              aria-label={copy.zoomInScreenshot}
+              title={copy.zoomInScreenshot}
+              onClick={() => changeZoom(0.25)}
+              disabled={zoom >= 3}
+            >
+              <ZoomIn size={14} />
+            </button>
+            <button
+              type="button"
+              aria-label={copy.resetScreenshotZoom}
+              title={copy.resetScreenshotZoom}
+              onClick={() => setZoom(1)}
+              disabled={zoom === 1}
+            >
+              <RotateCcw size={14} />
+            </button>
+            <button
+              type="button"
+              aria-label={fullscreen ? copy.exitPhoneFullscreen : copy.showPhoneFullscreen}
+              title={fullscreen ? copy.exitPhoneFullscreen : copy.showPhoneFullscreen}
+              onClick={() => setFullscreen((current) => !current)}
+            >
+              {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          </div>
+        ) : null}
+      </>
     </section>
   )
 }

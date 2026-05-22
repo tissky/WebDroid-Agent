@@ -13,7 +13,6 @@ import type {
   ModelConfig,
   OpenAiClient,
 } from './openAiClient'
-import type { PromptMode } from './prompts'
 import { mapActionCoordinates, modelScreenshotView } from './screenshotCoordinates'
 import {
   createDefaultActionToolRegistry,
@@ -41,14 +40,21 @@ export type AgentStep = {
   executionResult?: string
 }
 
+export type AgentDeviceSnapshot = {
+  index: number
+  screenshot: DeviceScreenshot
+  currentApp: string
+  deviceState: DeviceState
+}
+
 export type RunAgentStepInput = {
   device: DeviceBackend
   client: OpenAiClient
   modelConfig: ModelConfig
   task: string
-  promptMode: PromptMode
   session?: AgentSession
   index?: number
+  onSnapshot?: (snapshot: AgentDeviceSnapshot) => void | Promise<void>
 }
 
 export type AgentRunStatus =
@@ -68,13 +74,13 @@ export type AgentRunResult = {
 export type AgentRunnerInput = {
   modelConfig: ModelConfig
   task: string
-  promptMode: PromptMode
   autoExecute: boolean
   maxSteps: number
   session?: AgentSession
   signal?: AbortSignal
+  onSnapshot?: (snapshot: AgentDeviceSnapshot) => void | Promise<void>
   onStep?: (step: AgentStep) => void
-  onExecuted?: (step: AgentStep, result: string) => void
+  onExecuted?: (step: AgentStep, result: string) => void | Promise<void>
   confirmSensitiveAction?: ExecuteActionOptions['confirmSensitiveAction']
 }
 
@@ -190,9 +196,9 @@ export async function runAgentStep({
   client,
   modelConfig,
   task,
-  promptMode,
   session,
   index = 1,
+  onSnapshot,
 }: RunAgentStepInput): Promise<AgentStep> {
   const startedAt = now()
   const captureStartedAt = now()
@@ -203,6 +209,12 @@ export async function runAgentStep({
   const currentApp = deviceState.app
   const currentAppMs = elapsed(currentAppStartedAt)
   const modelScreenshot = modelScreenshotView(screenshot)
+  await onSnapshot?.({
+    index,
+    screenshot,
+    currentApp,
+    deviceState,
+  })
   const installedApps = await getInstalledAppsOrEmpty(device)
   const modelStartedAt = now()
   if (session) {
@@ -222,7 +234,6 @@ export async function runAgentStep({
     history: session?.history ?? [],
     appCard: resolveAppCard(deviceState.packageName),
     installedApps,
-    promptMode,
   }
   let modelOutput = await client.completeAction(completionRequest)
   let modelMs = elapsed(modelStartedAt)
@@ -304,9 +315,9 @@ export function createAgentRunner({
           client,
           modelConfig: input.modelConfig,
           task: input.task,
-          promptMode: input.promptMode,
           session,
           index,
+          onSnapshot: input.onSnapshot,
         })
         steps.push(step)
         input.onStep?.(step)
@@ -339,7 +350,7 @@ export function createAgentRunner({
           confirmSensitiveAction: input.confirmSensitiveAction,
         })
         recordAgentStep(session, step, result.summary, result.success)
-        input.onExecuted?.(step, result.summary)
+        await input.onExecuted?.(step, result.summary)
         if (!result.success) {
           return { status: 'awaiting_review', steps, reason: result.summary }
         }

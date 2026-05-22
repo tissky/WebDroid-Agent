@@ -1,6 +1,6 @@
 import type { DeviceState, InstalledApp } from '../adapters/deviceBackend'
 import type { ScreenSize } from './actions'
-import { buildSystemPrompt, type PromptMode } from './prompts'
+import { buildSystemPrompt } from './prompts'
 import { buildScreenshotContext } from './screenshotCoordinates'
 
 export type ModelConfig = {
@@ -21,7 +21,6 @@ export type CompletionRequest = ModelConfig & {
   history?: readonly AgentHistoryItem[]
   appCard?: string
   installedApps?: readonly InstalledApp[]
-  promptMode: PromptMode
 }
 
 export type RepairActionRequest = CompletionRequest & {
@@ -110,7 +109,6 @@ export function buildChatCompletionPayload({
   history = [],
   appCard,
   installedApps,
-  promptMode,
   stream,
 }: Pick<
   CompletionRequest,
@@ -125,13 +123,12 @@ export function buildChatCompletionPayload({
   | 'history'
   | 'appCard'
   | 'installedApps'
-  | 'promptMode'
   | 'stream'
 >): ChatCompletionPayload {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: buildSystemPrompt(promptMode),
+      content: buildSystemPrompt(),
     },
   ]
 
@@ -144,7 +141,6 @@ export function buildChatCompletionPayload({
     history,
     appCard,
     installedApps,
-    promptMode,
     latestUserMessage: latestUserMessage(conversation),
   })
   const conversationMessages = conversation?.filter((message) => message.content.trim()) ?? []
@@ -178,14 +174,11 @@ export function buildChatCompletionPayload({
 
   const payload: ChatCompletionPayload = {
     model,
-    temperature: promptMode === 'autoglm-native' ? 0 : 0.1,
-    max_tokens: promptMode === 'autoglm-native' ? 3000 : 800,
+    temperature: 0.1,
+    max_tokens: 800,
+    response_format: { type: 'json_object' },
     ...(stream ? { stream: true } : {}),
     messages,
-  }
-
-  if (promptMode === 'canonical-json') {
-    payload.response_format = { type: 'json_object' }
   }
 
   return payload
@@ -200,7 +193,6 @@ function buildUserContext({
   history,
   appCard,
   installedApps,
-  promptMode,
   latestUserMessage,
 }: Pick<
   CompletionRequest,
@@ -212,7 +204,6 @@ function buildUserContext({
   | 'history'
   | 'appCard'
   | 'installedApps'
-  | 'promptMode'
 > & {
   latestUserMessage?: string
 }) {
@@ -223,12 +214,7 @@ function buildUserContext({
     ...(deviceState?.activity ? { activity: deviceState.activity } : {}),
     ...(deviceState?.orientation ? { orientation: deviceState.orientation } : {}),
     ...(deviceState?.keyboard ? { keyboard: deviceState.keyboard } : {}),
-    ...(promptMode === 'autoglm-native'
-      ? {
-          screen_size: `${screen.width}x${screen.height}`,
-          coordinate_mode: 'relative_0_1000',
-        }
-      : buildScreenshotContext({ modelScreen: screen, deviceScreen })),
+    ...buildScreenshotContext({ modelScreen: screen, deviceScreen }),
   })
   const canonicalCoordinateInstruction = [
     'Coordinates use pixels in the attached screenshot.',
@@ -243,9 +229,7 @@ function buildUserContext({
     appCard ? `<app_card>\n${appCard}\n</app_card>` : null,
     formatInstalledApps(installedApps),
     'Treat the latest user message as the current instruction. Use earlier messages and observations only as context.',
-    promptMode === 'autoglm-native'
-      ? 'Coordinates in actions should use Open-AutoGLM relative coordinates from 0 to 1000.'
-      : canonicalCoordinateInstruction,
+    canonicalCoordinateInstruction,
   ].filter(Boolean) as string[]
 
   if (historyEntries.length > 0) {
@@ -419,18 +403,13 @@ export function createOpenAiClient(fetcher: typeof fetch = fetch): OpenAiClient 
 }
 
 function buildRepairTask(request: RepairActionRequest) {
-  const outputInstruction =
-    request.promptMode === 'canonical-json'
-      ? 'Return only one corrected canonical JSON action object. No markdown, no prose.'
-      : 'Return only one corrected supported Open-AutoGLM action. No extra explanation.'
-
   return [
     request.task,
     '',
     'The previous model action output was invalid. Repair only the action output for the same screenshot and task.',
     `<invalid_action_output>\n${request.invalidOutput}\n</invalid_action_output>`,
     `<validation_error>\n${request.validationError}\n</validation_error>`,
-    outputInstruction,
+    'Return only one corrected canonical JSON action object. No markdown, no prose.',
   ].join('\n')
 }
 

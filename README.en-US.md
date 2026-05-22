@@ -4,6 +4,10 @@
 
 # WebDroid Agent
 
+<p align="center">
+  <a href="./README.md">中文</a> | <a href="./README.en-US.md">English</a>
+</p>
+
 WebDroid Agent is a fully frontend Android phone agent experiment. It connects to an Android device from the browser through WebUSB/WebADB, captures the device screen, sends it to an OpenAI-compatible vision model, then parses, validates, and executes the model's constrained action through ADB.
 
 The goal is not to replace long-running human supervision. It is a local browser environment for quickly validating the vision-model-plus-phone-control loop.
@@ -18,7 +22,7 @@ browser fetch -> OpenAI-compatible /v1/chat/completions -> vision model
 - Run entirely on the frontend, with no application backend.
 - Connect to an Android device with USB debugging enabled through WebADB in the browser.
 - Capture the phone screen and send the screenshot, current app, device state, and step history to the model.
-- Support both canonical JSON and Open-AutoGLM-style prompt/action formats.
+- Use the canonical JSON prompt/action format, while keeping parser compatibility for Open-AutoGLM-style action outputs.
 - Parse, normalize, and validate the next action returned by the model.
 - Execute app launches, taps, swipes, text input, Back, Home, long press, double tap, and wait actions through ADB.
 - Support continuous auto-execution as well as step-by-step human confirmation.
@@ -89,7 +93,6 @@ The app stores these values in the current browser's `localStorage`:
 - `Task`: current natural-language task.
 - `Max steps`: maximum auto-execution steps, default `50`.
 - `Auto execute`: whether safe model actions are executed automatically, default on.
-- `Prompt mode`: `canonical-json` or `autoglm-native`.
 - `Confirm sensitive actions`: whether sensitive taps require human confirmation, default on.
 - `Stream responses`: whether to use streaming responses, default off.
 - `Use ADB Keyboard for text`: whether to prefer ADB Keyboard input, default off.

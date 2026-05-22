@@ -1,5 +1,4 @@
 import type { ModelConfig } from './openAiClient'
-import type { PromptMode } from './prompts'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type LanguageMode = 'system' | 'zh-CN' | 'en-US'
@@ -10,7 +9,6 @@ export type AppSettings = {
   maxSteps: number
   autoExecute: boolean
   preferAdbKeyboard: boolean
-  promptMode: PromptMode
   confirmSensitiveActions: boolean
   streamResponses: boolean
   actionSettleMs: number
@@ -39,7 +37,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxSteps: 50,
   autoExecute: true,
   preferAdbKeyboard: false,
-  promptMode: 'canonical-json',
   confirmSensitiveActions: true,
   streamResponses: false,
   actionSettleMs: 1000,
@@ -97,7 +94,6 @@ function normalizeSettings(candidate: unknown): AppSettings {
     maxSteps: clamp(readNumber(candidate.maxSteps, DEFAULT_SETTINGS.maxSteps), 1, 200),
     autoExecute: readBoolean(candidate.autoExecute, DEFAULT_SETTINGS.autoExecute),
     preferAdbKeyboard: readBoolean(candidate.preferAdbKeyboard, DEFAULT_SETTINGS.preferAdbKeyboard),
-    promptMode: readPromptMode(candidate.promptMode, DEFAULT_SETTINGS.promptMode),
     confirmSensitiveActions: readBoolean(
       candidate.confirmSensitiveActions,
       DEFAULT_SETTINGS.confirmSensitiveActions,
@@ -131,10 +127,6 @@ function readRangeNumber(value: unknown, fallback: number, min: number, max: num
 
 function readBoolean(value: unknown, fallback: boolean) {
   return typeof value === 'boolean' ? value : fallback
-}
-
-function readPromptMode(value: unknown, fallback: PromptMode): PromptMode {
-  return value === 'canonical-json' || value === 'autoglm-native' ? value : fallback
 }
 
 function readThemeMode(value: unknown, fallback: ThemeMode): ThemeMode {

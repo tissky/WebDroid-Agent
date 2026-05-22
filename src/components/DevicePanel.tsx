@@ -9,6 +9,7 @@ import {
   MoveRight,
   Play,
   CircleStop,
+  Download,
   ScanEye,
   Search,
   Stethoscope,
@@ -40,6 +41,7 @@ export function DevicePanel({
   onDisconnectDevice,
   onDoubleTapIntervalMsChange,
   onEnableAdbKeyboard,
+  onInstallAdbKeyboard,
   onKeyboardStepMsChange,
   onLaunchInstalledApp,
   onPreferAdbKeyboardChange,
@@ -66,6 +68,7 @@ export function DevicePanel({
   onDisconnectDevice: () => void
   onDoubleTapIntervalMsChange: (value: number) => void
   onEnableAdbKeyboard: () => void
+  onInstallAdbKeyboard: () => void
   onKeyboardStepMsChange: (value: number) => void
   onLaunchInstalledApp: (app: InstalledApp) => void
   onPreferAdbKeyboardChange: (value: boolean) => void
@@ -138,6 +141,15 @@ export function DevicePanel({
       >
         <ScanEye size={16} />
         {copy.capture}
+      </button>
+      <button
+        type="button"
+        className="wide"
+        onClick={onInstallAdbKeyboard}
+        disabled={Boolean(busy) || !connected}
+      >
+        <Download size={16} />
+        {copy.installAdbKeyboard}
       </button>
       <button
         type="button"

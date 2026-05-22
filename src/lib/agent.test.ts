@@ -73,7 +73,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
         task: 'Open app',
-        promptMode: 'canonical-json',
       })
 
     expect(step.action).toEqual({ action: 'tap', x: 100, y: 200, reason: 'open' })
@@ -87,6 +86,36 @@ describe('runAgentStep', () => {
           packageName: 'com.android.chrome',
           activity: 'com.google.android.apps.chrome.Main',
         }),
+      }),
+    )
+  })
+
+  it('reports a fresh device snapshot before asking the model', async () => {
+    const device = fakeDevice()
+    const snapshots: unknown[] = []
+    const client: OpenAiClient = {
+      completeAction: vi.fn(async () => {
+        expect(snapshots).toHaveLength(1)
+        return '{"action":"done","summary":"fresh screenshot shown"}'
+      }),
+    }
+
+    await runAgentStep({
+      device,
+      client,
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Open app',
+      onSnapshot: (snapshot) => {
+        snapshots.push(snapshot)
+      },
+    })
+
+    expect(snapshots[0]).toEqual(
+      expect.objectContaining({
+        currentApp: 'Chrome',
+        deviceState: expect.objectContaining({ packageName: 'com.android.chrome' }),
+        index: 1,
+        screenshot: expect.objectContaining({ dataUrl: 'data:image/png;base64,abc' }),
       }),
     )
   })
@@ -109,7 +138,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       session,
     })
 
@@ -132,7 +160,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open a new tab',
-      promptMode: 'canonical-json',
     })
 
     expect(client.completeAction).toHaveBeenCalledWith(
@@ -153,7 +180,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open Gmail',
-      promptMode: 'canonical-json',
     })
 
     expect(device.getInstalledApps).toHaveBeenCalled()
@@ -178,7 +204,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
     })
 
     expect(client.completeAction).toHaveBeenCalledWith(
@@ -204,7 +229,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
     })
 
     expect(step.currentApp).toBe('Unknown')
@@ -228,7 +252,6 @@ describe('runAgentStep', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
     })
 
     expect(step.modelOutput).toBe('{"action":"tap","x":100,"y":200,"reason":"fixed"}')
@@ -257,7 +280,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: false,
       maxSteps: 5,
     })
@@ -276,7 +298,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 5,
     })
@@ -295,7 +316,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 5,
     })
@@ -314,7 +334,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 2,
     })
@@ -333,12 +352,44 @@ describe('createAgentRunner', () => {
     await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 1,
     })
 
     expect(device.executedActions).toEqual([{ action: 'tap', x: 500, y: 1000 }])
+  })
+
+  it('waits for the executed-action callback before starting the next step', async () => {
+    const events: string[] = []
+    const device = fakeDevice()
+    const client: OpenAiClient = {
+      completeAction: vi.fn(async () => {
+        events.push(`model-${vi.mocked(client.completeAction).mock.calls.length}`)
+        return '{"action":"wait","ms":100}'
+      }),
+    }
+    const runner = createAgentRunner({ device, client })
+
+    await runner.run({
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Open app',
+      autoExecute: true,
+      maxSteps: 2,
+      onExecuted: async () => {
+        events.push('executed-callback-start')
+        await Promise.resolve()
+        events.push('executed-callback-end')
+      },
+    })
+
+    expect(events).toEqual([
+      'model-1',
+      'executed-callback-start',
+      'executed-callback-end',
+      'model-2',
+      'executed-callback-start',
+      'executed-callback-end',
+    ])
   })
 
   it('records executed steps in the session history for the next model call', async () => {
@@ -392,7 +443,6 @@ describe('createAgentRunner', () => {
       client,
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       session,
     })
     recordAgentStep(session, step, 'input tap 100 200', true)
@@ -454,7 +504,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open Settings',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 3,
       session,
@@ -482,7 +531,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 10,
     })
@@ -502,7 +550,6 @@ describe('createAgentRunner', () => {
     const result = await runner.run({
       modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
       task: 'Open app',
-      promptMode: 'canonical-json',
       autoExecute: true,
       maxSteps: 10,
     })

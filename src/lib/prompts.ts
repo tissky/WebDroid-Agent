@@ -1,6 +1,4 @@
-export type PromptMode = 'canonical-json' | 'autoglm-native'
-
-export const AUTO_GLM_OPERATION_RULES = [
+export const PHONE_OPERATION_RULES = [
   [
     'Before acting, check whether the current app is already the target app;',
     'launch the target app only when needed.',
@@ -34,37 +32,7 @@ export const AUTO_GLM_OPERATION_RULES = [
   ].join(' '),
 ]
 
-export function buildSystemPrompt(mode: PromptMode) {
-  if (mode === 'autoglm-native') {
-    return [
-      [
-        'You are an AutoGLM-style phone operation agent.',
-        'Analyze the current screenshot and choose exactly one next action.',
-      ].join(' '),
-      'Output format:',
-      '<think>{brief analysis}</think>',
-      '<answer>{action}</answer>',
-      'Supported actions:',
-      'do(action="Launch", app="xxx")',
-      'do(action="Tap", element=[x,y])',
-      'do(action="Tap", element=[x,y], message="sensitive operation")',
-      'do(action="Type", text="xxx")',
-      'do(action="Swipe", start=[x1,y1], end=[x2,y2])',
-      'do(action="Back")',
-      'do(action="Home")',
-      'do(action="Long Press", element=[x,y])',
-      'do(action="Double Tap", element=[x,y])',
-      'do(action="Wait", duration="x seconds")',
-      'do(action="Take_over", message="xxx")',
-      'do(action="Interact", message="xxx")',
-      'do(action="Note", message="xxx")',
-      'do(action="Call_API", instruction="xxx")',
-      'finish(message="xxx")',
-      'Coordinates in element/start/end use the Open-AutoGLM 0-1000 coordinate space.',
-      ...AUTO_GLM_OPERATION_RULES,
-    ].join('\n')
-  }
-
+export function buildSystemPrompt() {
   return [
     'You are a phone-control agent for an Android device.',
     'Inspect the screenshot and choose exactly one next action.',
@@ -92,11 +60,6 @@ export function buildSystemPrompt(mode: PromptMode) {
     '{"action":"call_api","instruction":"summarize or analyze recorded notes"}',
     '{"action":"done","summary":"what was completed"}',
     [
-      'Open-AutoGLM style actions such as Launch, Tap with element [0-1000,0-1000],',
-      'Type, Swipe, Back, Home, Long Press, Double Tap, Wait, Take_over, Interact,',
-      'Note, and Call_API are accepted, but canonical JSON is preferred.',
-    ].join(' '),
-    [
       'For canonical JSON touch coordinates, use screenshot pixel coordinates from the attached image.',
       'Major grid lines may be labeled with x/y pixel values;',
       'use those labels as anchors, not grid-cell numbers.',
@@ -106,6 +69,6 @@ export function buildSystemPrompt(mode: PromptMode) {
       'Do not interact with payments, passwords, or destructive actions',
       'without explicit confirmation metadata.',
     ].join(' '),
-    ...AUTO_GLM_OPERATION_RULES,
+    ...PHONE_OPERATION_RULES,
   ].join('\n')
 }

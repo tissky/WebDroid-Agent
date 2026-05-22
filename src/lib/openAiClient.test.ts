@@ -20,7 +20,6 @@ describe('buildChatCompletionPayload', () => {
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 1080, height: 2400 },
       deviceScreen: { width: 1440, height: 3120 },
-      promptMode: 'canonical-json',
     })
 
     expect(payload).toMatchObject({
@@ -40,6 +39,19 @@ describe('buildChatCompletionPayload', () => {
     ])
   })
 
+  it('asks the model for canonical JSON instead of Open-AutoGLM actions', () => {
+    const payload = buildChatCompletionPayload({
+      model: 'agent-model',
+      task: 'Open settings',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+    })
+
+    expect(payload.messages[0].content).toContain('Return only one JSON object')
+    expect(payload.messages[0].content).not.toContain('Open-AutoGLM')
+    expect(payload.messages[0].content).not.toContain('do(action=')
+  })
+
   it('describes screenshot coordinates and device mapping in the user context', () => {
     const payload = buildChatCompletionPayload({
       model: 'agent-model',
@@ -47,7 +59,6 @@ describe('buildChatCompletionPayload', () => {
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 955, height: 2048 },
       deviceScreen: { width: 1080, height: 2316 },
-      promptMode: 'canonical-json',
     })
 
     const userMessage = payload.messages[1]
@@ -82,7 +93,6 @@ describe('buildChatCompletionPayload', () => {
         orientation: 'portrait',
         keyboard: 'com.android.adbkeyboard/.AdbIME',
       },
-      promptMode: 'canonical-json',
       history: [
         {
           step: 1,
@@ -124,7 +134,6 @@ describe('buildChatCompletionPayload', () => {
         packageName: 'com.android.chrome',
       },
       appCard: '# Chrome App Card\n- Use the address bar for searches.',
-      promptMode: 'canonical-json',
     })
 
     const userMessage = payload.messages[1]
@@ -151,7 +160,6 @@ describe('buildChatCompletionPayload', () => {
         { label: 'Gmail', packageName: 'com.google.android.gm' },
         { packageName: 'com.android.chrome' },
       ],
-      promptMode: 'canonical-json',
     })
 
     const userMessage = payload.messages[1]
@@ -181,7 +189,6 @@ describe('buildChatCompletionPayload', () => {
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 1080, height: 2400 },
       currentApp: 'Settings',
-      promptMode: 'canonical-json',
     })
 
     expect(payload.messages.map((message) => message.role)).toEqual([
@@ -228,26 +235,12 @@ describe('buildChatCompletionPayload', () => {
       task: 'Open settings',
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 1080, height: 2400 },
-      promptMode: 'canonical-json',
       stream: true,
     })
 
     expect(payload.stream).toBe(true)
   })
 
-  it('uses Open-AutoGLM native mode without forcing JSON response format', () => {
-    const payload = buildChatCompletionPayload({
-      model: 'autoglm-phone',
-      task: '打开京东',
-      screenshotDataUrl: 'data:image/png;base64,abc123',
-      screen: { width: 1080, height: 2400 },
-      promptMode: 'autoglm-native',
-    })
-
-    expect(payload.response_format).toBeUndefined()
-    expect(payload.messages[0].content).toContain('do(action="Launch"')
-    expect(payload.messages[0].content).toContain('finish(message=')
-  })
 })
 
 describe('extractAssistantText', () => {
@@ -279,7 +272,6 @@ describe('createOpenAiClient', () => {
       task: 'Finish',
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 10, height: 20 },
-      promptMode: 'canonical-json',
     })
 
     expect(text).toBe('{"action":"done"}')
@@ -328,7 +320,6 @@ describe('createOpenAiClient', () => {
       task: 'Finish',
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 10, height: 20 },
-      promptMode: 'canonical-json',
     })
 
     expect(text).toBe('{"action":"done"}')
@@ -351,7 +342,6 @@ describe('createOpenAiClient', () => {
       task: 'Open Settings',
       screenshotDataUrl: 'data:image/png;base64,abc123',
       screen: { width: 1080, height: 2400 },
-      promptMode: 'canonical-json',
       invalidOutput: '{"action":"tap","x":9999,"y":200}',
       validationError: 'Point is outside the current screen.',
     })

@@ -1,9 +1,11 @@
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb'
 import AdbWebCredentialStore from '@yume-chan/adb-credential-web'
 import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb'
+import { ReadableStream } from '@yume-chan/stream-extra'
 import type { AgentAction } from '../lib/actions'
 import { preprocessScreenshotForModel } from './screenshotPreprocess'
 import {
+  ADB_KEYBOARD_REMOTE_APK_PATH,
   DEFAULT_DEVICE_TIMING,
   assertSensitiveActionConfirmed,
   buildInputCommandSequence,
@@ -219,6 +221,40 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     return [enable.trim(), set.trim()].filter(Boolean).join('\n') || `Enabled ${keyboardIme}`
   }
 
+  async installAdbKeyboard(apkBytes: Uint8Array): Promise<string> {
+    if (apkBytes.byteLength === 0) {
+      throw new DeviceBackendError('Downloaded ADB Keyboard APK is empty.')
+    }
+
+    const adb = this.#requireAdb()
+    const sync = await adb.sync()
+    try {
+      await sync.write({
+        filename: ADB_KEYBOARD_REMOTE_APK_PATH,
+        file: bytesToReadableStream(apkBytes),
+        permission: 0o644,
+      })
+    } finally {
+      await sync.dispose().catch(() => undefined)
+    }
+
+    try {
+      const installOutput = await adb.subprocess.noneProtocol.spawnWaitText([
+        'pm',
+        'install',
+        '-r',
+        ADB_KEYBOARD_REMOTE_APK_PATH,
+      ])
+      this.#installedApps = null
+      return [
+        `Pushed ${apkBytes.byteLength} bytes to ${ADB_KEYBOARD_REMOTE_APK_PATH}.`,
+        installOutput.trim() || 'pm install completed.',
+      ].join('\n')
+    } finally {
+      await adb.rm(ADB_KEYBOARD_REMOTE_APK_PATH, { force: true }).catch(() => undefined)
+    }
+  }
+
   setPreferAdbKeyboard(value: boolean) {
     this.#preferAdbKeyboard = value
   }
@@ -338,4 +374,13 @@ export function isWebUsbSupported() {
 
 function isWaitStep(step: DeviceCommandStep): step is { waitMs: number } {
   return !Array.isArray(step)
+}
+
+function bytesToReadableStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes)
+      controller.close()
+    },
+  })
 }

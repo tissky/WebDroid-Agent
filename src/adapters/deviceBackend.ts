@@ -59,6 +59,9 @@ export const AUTO_GLM_KEYBOARD_STEP_DELAY_MS = 1000
 export const DEFAULT_DEVICE_READ_RETRY_DELAYS_MS = [250, 750, 1500] as const
 export const DEFAULT_DEVICE_READ_MAX_ATTEMPTS = 4
 export const ADB_KEYBOARD_IME = 'com.android.adbkeyboard/.AdbIME'
+export const ADB_KEYBOARD_APK_URL =
+  'https://raw.githubusercontent.com/senzhk/ADBKeyBoard/master/ADBKeyboard.apk'
+export const ADB_KEYBOARD_REMOTE_APK_PATH = '/data/local/tmp/webdroid-adbkeyboard.apk'
 export const DEFAULT_DEVICE_TIMING: DeviceTimingConfig = {
   actionSettleMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS,
   doubleTapIntervalMs: AUTO_GLM_DOUBLE_TAP_INTERVAL_MS,
@@ -73,6 +76,7 @@ export type DeviceBackend = {
   getDeviceState(): Promise<DeviceState>
   getInputMethods?(): Promise<string>
   getInstalledApps?(): Promise<InstalledApp[]>
+  installAdbKeyboard?(apkBytes: Uint8Array): Promise<string>
   execute(action: AgentAction, options?: ExecuteActionOptions): Promise<string>
 }
 

@@ -1,23 +1,18 @@
 import { KeyRound } from 'lucide-react'
 import type { AppCopy } from '../lib/appCopy'
 import type { ModelConfig } from '../lib/openAiClient'
-import type { PromptMode } from '../lib/prompts'
 
 export function ModelPanel({
   copy,
   modelConfig,
   onModelConfigChange,
-  onPromptModeChange,
   onStreamResponsesChange,
-  promptMode,
   streamResponses,
 }: {
   copy: AppCopy
   modelConfig: ModelConfig
   onModelConfigChange: <Key extends keyof ModelConfig>(key: Key, value: ModelConfig[Key]) => void
-  onPromptModeChange: (value: PromptMode) => void
   onStreamResponsesChange: (value: boolean) => void
-  promptMode: PromptMode
   streamResponses: boolean
 }) {
   return (
@@ -54,16 +49,6 @@ export function ModelPanel({
               onChange={(event) => onModelConfigChange('model', event.target.value)}
               placeholder="vision-model"
             />
-          </label>
-          <label>
-            {copy.promptMode}
-            <select
-              value={promptMode}
-              onChange={(event) => onPromptModeChange(event.target.value as PromptMode)}
-            >
-              <option value="canonical-json">Canonical JSON</option>
-              <option value="autoglm-native">AutoGLM native</option>
-            </select>
           </label>
           <label className="toggle">
             <input

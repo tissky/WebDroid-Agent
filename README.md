@@ -5,10 +5,8 @@
 # WebDroid Agent
 
 <p align="center">
-  <a href="./README.md">中文</a> | <a href="./README.en.md">English</a>
+  <a href="./README.md">中文</a> | <a href="./README.en-US.md">English</a>
 </p>
-
-[English](./README.en-US.md)
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
@@ -55,7 +53,7 @@ Chromium WebUSB -> Tango/WebADB -> Android ADB
 - 纯前端运行，无应用后端，适合本地实验和静态站点部署。
 - 通过 WebADB 在浏览器中连接已开启 USB 调试的 Android 设备。
 - 截取手机屏幕，并把截图、当前 App、设备状态和历史步骤发送给视觉模型。
-- 支持 canonical JSON 和 Open-AutoGLM 风格两种提示词/动作格式。
+- 使用 canonical JSON 提示词和动作格式，并保留 Open-AutoGLM 风格动作输出的解析兼容。
 - 自动解析、规范化并校验模型返回的下一步动作。
 - 通过 ADB 执行启动应用、点击、滑动、输入文本、返回、Home、长按、双击、等待等操作。
 - 支持连续自动执行，也支持逐步人工确认。
@@ -139,7 +137,6 @@ npm run preview
 - `Task`：当前自然语言任务。
 - `Max steps`：自动执行的最大步数，默认 `50`。
 - `Auto execute`：是否自动执行模型返回的安全动作，默认开启。
-- `Prompt mode`：提示词模式，支持 `canonical-json` 和 `autoglm-native`。
 - `Confirm sensitive actions`：敏感点击是否需要人工确认，默认开启。
 - `Stream responses`：是否启用流式响应，默认关闭。
 - `Use ADB Keyboard for text`：是否优先使用 ADB Keyboard 输入文本，默认关闭。
@@ -155,7 +152,7 @@ API Key 只保存在浏览器本地。请只在可信设备和本地实验环境
 { "action": "tap", "x": 540, "y": 1280, "reason": "点击搜索框" }
 ```
 
-canonical JSON 模式支持的标准动作：
+canonical JSON 支持的标准动作：
 
 | 动作 | 说明 |
 | --- | --- |

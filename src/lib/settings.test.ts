@@ -37,7 +37,6 @@ describe('settings persistence', () => {
       maxSteps: 12,
       autoExecute: false,
       preferAdbKeyboard: true,
-      promptMode: 'autoglm-native',
       confirmSensitiveActions: false,
       streamResponses: true,
       actionSettleMs: 350,
@@ -104,6 +103,19 @@ describe('settings persistence', () => {
         }),
       ),
     ).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it('drops the removed AutoGLM native prompt mode from persisted settings', () => {
+    const loaded = loadSettings(
+      memoryStorage({
+        'webdroid-agent-settings': JSON.stringify({
+          ...DEFAULT_SETTINGS,
+          promptMode: 'autoglm-native',
+        }),
+      }),
+    )
+
+    expect(loaded).not.toHaveProperty('promptMode')
   })
 
   it('keeps the previous WebADB AutoGLM settings key as a migration fallback', () => {

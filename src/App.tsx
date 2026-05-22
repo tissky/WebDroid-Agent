@@ -12,6 +12,7 @@ import type {
   DeviceState,
   InstalledApp,
 } from './adapters/deviceBackend'
+import { ADB_KEYBOARD_APK_URL } from './adapters/deviceBackend'
 import { WebAdbDeviceBackend, isWebUsbSupported } from './adapters/webAdbBackend'
 import { buildActionPreview, type AgentAction } from './lib/actions'
 import {
@@ -31,7 +32,6 @@ import {
   type DoctorCheckResult,
 } from './lib/deviceDoctor'
 import { createOpenAiClient, type ModelConfig } from './lib/openAiClient'
-import type { PromptMode } from './lib/prompts'
 import { APP_COPY, resolveLocale } from './lib/appCopy'
 import { readRepositoryStats, REPOSITORY_API_URL, type RepositoryStats } from './lib/repository'
 import { modelScreenshotView } from './lib/screenshotCoordinates'
@@ -59,7 +59,6 @@ function App() {
   const [maxSteps, setMaxSteps] = useState(settings.maxSteps)
   const [autoExecute, setAutoExecute] = useState(settings.autoExecute)
   const [preferAdbKeyboard, setPreferAdbKeyboard] = useState(settings.preferAdbKeyboard)
-  const [promptMode, setPromptMode] = useState<PromptMode>(settings.promptMode)
   const [confirmSensitiveActions, setConfirmSensitiveActions] = useState(
     settings.confirmSensitiveActions,
   )
@@ -101,7 +100,6 @@ function App() {
       maxSteps,
       autoExecute,
       preferAdbKeyboard,
-      promptMode,
       confirmSensitiveActions,
       streamResponses,
       actionSettleMs,
@@ -120,7 +118,6 @@ function App() {
     maxSteps,
     modelConfig,
     preferAdbKeyboard,
-    promptMode,
     streamResponses,
     task,
     themeMode,
@@ -209,6 +206,31 @@ function App() {
       },
       ...current,
     ])
+  }
+
+  function applyDeviceSnapshot({
+    currentApp,
+    deviceState,
+    screenshot,
+  }: {
+    currentApp: string
+    deviceState: DeviceState
+    screenshot: DeviceScreenshot
+  }) {
+    setScreenshot(screenshot)
+    setCurrentApp(currentApp)
+    setDeviceState(deviceState)
+  }
+
+  async function refreshDisplayedSnapshot() {
+    const nextScreenshot = await backend.screenshot()
+    const nextDeviceState = await backend.getDeviceState()
+    applyDeviceSnapshot({
+      screenshot: nextScreenshot,
+      currentApp: nextDeviceState.app,
+      deviceState: nextDeviceState,
+    })
+    return { screenshot: nextScreenshot, deviceState: nextDeviceState }
   }
 
   function toLogScreenshot(value: DeviceScreenshot | null | undefined): LogScreenshot | undefined {
@@ -309,7 +331,6 @@ function App() {
         ...modelConfig,
         apiKey: modelConfig.apiKey ? '<redacted>' : '',
       },
-      promptMode,
       streamResponses,
       timing: {
         actionSettleMs,
@@ -372,11 +393,8 @@ function App() {
 
   async function captureScreen() {
     await runTask('Capture screen', async () => {
-      const nextScreenshot = await backend.screenshot()
-      const nextDeviceState = await backend.getDeviceState()
-      setScreenshot(nextScreenshot)
-      setCurrentApp(nextDeviceState.app)
-      setDeviceState(nextDeviceState)
+      const { screenshot: nextScreenshot, deviceState: nextDeviceState } =
+        await refreshDisplayedSnapshot()
       const screenshotSize = `${nextScreenshot.screen.width}x${nextScreenshot.screen.height}`
       addLog({
         tone: 'ok',
@@ -405,6 +423,34 @@ function App() {
       const result = await backend.enableAdbKeyboard()
       setPreferAdbKeyboard(true)
       addLog({ tone: 'ok', title: 'ADB Keyboard enabled', detail: result })
+    })
+  }
+
+  async function installAdbKeyboard() {
+    await runTask(copy.installAdbKeyboard, async () => {
+      if (typeof fetch !== 'function') {
+        throw new Error('This browser cannot download the ADB Keyboard APK.')
+      }
+
+      const response = await fetch(ADB_KEYBOARD_APK_URL)
+      if (!response.ok) {
+        throw new Error(`Failed to download ADB Keyboard APK: HTTP ${response.status}.`)
+      }
+
+      const apkBytes = new Uint8Array(await response.arrayBuffer())
+      const installResult = await backend.installAdbKeyboard(apkBytes)
+      const enableResult = await backend.enableAdbKeyboard()
+      setPreferAdbKeyboard(true)
+      const nextDeviceState = await backend.getDeviceState().catch(() => null)
+      if (nextDeviceState) {
+        setCurrentApp(nextDeviceState.app)
+        setDeviceState(nextDeviceState)
+      }
+      addLog({
+        tone: 'ok',
+        title: copy.adbKeyboardInstalled,
+        detail: [installResult, enableResult].filter(Boolean).join('\n'),
+      })
     })
   }
 
@@ -439,6 +485,7 @@ function App() {
         title: copy.directCommand,
         detail: [buildActionPreview(action), result].filter(Boolean).join('\n'),
       })
+      await refreshDisplayedSnapshot()
     })
   }
 
@@ -463,9 +510,9 @@ function App() {
         client,
         modelConfig: { ...modelConfig, stream: streamResponses },
         task: session.task,
-        promptMode,
         session,
         index: session.history.length + 1,
+        onSnapshot: applyDeviceSnapshot,
       })
       setScreenshot(step.screenshot)
       setCurrentApp(step.currentApp)
@@ -511,6 +558,7 @@ function App() {
       if (!result.success) {
         setError(result.summary)
       }
+      await refreshDisplayedSnapshot()
       setPendingStep(null)
       syncConversation()
     })
@@ -526,12 +574,12 @@ function App() {
       const result = await runner.run({
         modelConfig: { ...modelConfig, stream: streamResponses },
         task: session.task,
-        promptMode,
         autoExecute: true,
         maxSteps,
         session,
         signal: controller.signal,
         confirmSensitiveAction,
+        onSnapshot: applyDeviceSnapshot,
         onStep: (step) => {
           setScreenshot(step.screenshot)
           setCurrentApp(step.currentApp)
@@ -546,7 +594,7 @@ function App() {
           })
           syncConversation()
         },
-        onExecuted: (step, commandResult) => {
+        onExecuted: async (step, commandResult) => {
           addLog({
             tone: 'ok',
             title: `Executed ${step.preview}`,
@@ -554,6 +602,7 @@ function App() {
             screenshot: toLogScreenshot(step.screenshot),
             timeline: buildStepTimeline(step, commandResult),
           })
+          await refreshDisplayedSnapshot()
           syncConversation()
         },
       })
@@ -671,9 +720,7 @@ function App() {
             copy={copy}
             modelConfig={modelConfig}
             onModelConfigChange={updateConfig}
-            onPromptModeChange={setPromptMode}
             onStreamResponsesChange={setStreamResponses}
-            promptMode={promptMode}
             streamResponses={streamResponses}
           />
 
@@ -696,6 +743,7 @@ function App() {
             onDisconnectDevice={disconnectDevice}
             onDoubleTapIntervalMsChange={setDoubleTapIntervalMs}
             onEnableAdbKeyboard={enableAdbKeyboard}
+            onInstallAdbKeyboard={installAdbKeyboard}
             onKeyboardStepMsChange={setKeyboardStepMs}
             onLaunchInstalledApp={launchInstalledApp}
             onPreferAdbKeyboardChange={toggleAdbKeyboard}
