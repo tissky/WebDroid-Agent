@@ -10,15 +10,42 @@ import {
   Send,
   StepForward,
 } from 'lucide-react'
-import { buildActionPreview, type AgentAction } from '../lib/actions'
+import { buildActionPreview } from '../lib/actionPreview'
+import type { AgentAction } from '../lib/actionTypes'
 import type { AppCopy } from '../lib/appCopy'
 import type { AgentStep } from '../lib/agent'
-import type { AgentConversationMessage } from '../lib/openAiClient'
+import type { BusyTask } from '../lib/busyTask'
+import type { AgentConversationMessage } from '../lib/openAiTypes'
 import type { TaskTemplate } from '../lib/taskTemplates'
+
+export type RunPanelProps = {
+  autoExecute: boolean
+  busyTask: BusyTask | null
+  canRun: boolean
+  chatInput: string
+  conversation: AgentConversationMessage[]
+  copy: AppCopy
+  logsCount: number
+  maxSteps: number
+  pendingStep: AgentStep | null
+  taskTemplates: TaskTemplate[]
+  onAutoExecuteChange: (value: boolean) => void
+  onChatInputChange: (value: string) => void
+  onExecutePendingStep: () => void
+  onExportRunLog: () => void
+  onMaxStepsChange: (value: number) => void
+  onPlanNextStep: () => void
+  onResetSession: () => void
+  onRunAutoLoop: () => void
+  onStartNewChat: () => void
+  onStopRun: () => void
+  onSubmitChatMessage: () => void
+  onTaskTemplateSelect: (prompt: string) => void
+}
 
 export function RunPanel({
   autoExecute,
-  busy,
+  busyTask,
   canRun,
   chatInput,
   conversation,
@@ -39,35 +66,40 @@ export function RunPanel({
   onTaskTemplateSelect,
   pendingStep,
   taskTemplates,
-}: {
-  autoExecute: boolean
-  busy: string | null
-  canRun: boolean
-  chatInput: string
-  conversation: AgentConversationMessage[]
-  copy: AppCopy
-  logsCount: number
-  maxSteps: number
-  onAutoExecuteChange: (value: boolean) => void
-  onChatInputChange: (value: string) => void
-  onExecutePendingStep: () => void
-  onExportRunLog: () => void
-  onMaxStepsChange: (value: number) => void
-  onPlanNextStep: () => void
-  onResetSession: () => void
-  onRunAutoLoop: () => void
-  onStartNewChat: () => void
-  onStopRun: () => void
-  onSubmitChatMessage: () => void
-  onTaskTemplateSelect: (prompt: string) => void
-  pendingStep: AgentStep | null
-  taskTemplates: TaskTemplate[]
-}) {
+}: RunPanelProps) {
+  const chatIsEmpty = chatInput.trim().length === 0
+  const runActionLabel = autoExecute ? copy.runAgent : copy.planNextStep
+  const isBusy = Boolean(busyTask)
+  const isRunningAgent = busyTask?.id === 'run-agent'
+  const runActionTitle = busyTask ? copy.waitForCurrentRun : copy.runUnavailable
+  const runActionDisabled = !canRun
+  const runAction = autoExecute ? onRunAutoLoop : onPlanNextStep
+  const runIcon =
+    isRunningAgent ? (
+      <Loader2 className="spin" size={16} />
+    ) : autoExecute ? (
+      <Play size={16} />
+    ) : (
+      <StepForward size={16} />
+    )
+
   return (
     <>
-      <div className="panel-title">
-        <MessageSquare size={18} />
-        <h2>{copy.chat}</h2>
+      <div className="panel-title run-panel-title">
+        <div className="panel-title-main">
+          <MessageSquare size={18} />
+          <h2>{copy.chat}</h2>
+        </div>
+        <button
+          type="button"
+          className="panel-title-action"
+          onClick={onStartNewChat}
+          disabled={isBusy}
+          title={busyTask ? copy.waitForCurrentRun : copy.newChat}
+        >
+          <Plus size={16} />
+          {copy.newChat}
+        </button>
       </div>
       <details className="compact-section">
         <summary>{copy.conversation}</summary>
@@ -82,15 +114,6 @@ export function RunPanel({
         </div>
       </details>
       <label>
-        {copy.chatMessage}
-        <textarea
-          value={chatInput}
-          onChange={(event) => onChatInputChange(event.target.value)}
-          rows={4}
-          placeholder={copy.chatPlaceholder}
-        />
-      </label>
-      <label>
         {copy.taskTemplate}
         <select
           value=""
@@ -100,7 +123,7 @@ export function RunPanel({
               onTaskTemplateSelect(template.prompt)
             }
           }}
-          disabled={Boolean(busy)}
+          disabled={isBusy}
         >
           <option value="">{copy.chooseTaskTemplate}</option>
           {taskTemplates.map((template) => (
@@ -110,26 +133,72 @@ export function RunPanel({
           ))}
         </select>
       </label>
-      <div className="button-row">
-        <button type="button" onClick={onSubmitChatMessage} disabled={!chatInput.trim()}>
-          <Send size={16} />
-          {copy.send}
+      <section className="chat-composer">
+        <label>
+          {copy.chatMessage}
+          <textarea
+            value={chatInput}
+            onChange={(event) => onChatInputChange(event.target.value)}
+            rows={4}
+            placeholder={copy.chatPlaceholder}
+          />
+        </label>
+        <div className="composer-actions">
+          <button
+            type="button"
+            className="wide"
+            onClick={onSubmitChatMessage}
+            disabled={chatIsEmpty}
+            title={chatIsEmpty ? copy.typeMessageFirst : copy.send}
+          >
+            <Send size={16} />
+            {copy.send}
+          </button>
+        </div>
+      </section>
+
+      <section className="agent-run-actions" aria-label={copy.agentRun}>
+        <div className="run-mode" role="radiogroup" aria-label={copy.executionMode}>
+          <span className="run-mode-label">{copy.executionMode}</span>
+          <label className="run-mode-option">
+            <input
+              type="radio"
+              name="execution-mode"
+              checked={!autoExecute}
+              onChange={() => onAutoExecuteChange(false)}
+              disabled={isBusy}
+            />
+            <span>
+              <StepForward size={16} />
+              {copy.manualMode}
+            </span>
+          </label>
+          <label className="run-mode-option">
+            <input
+              type="radio"
+              name="execution-mode"
+              checked={autoExecute}
+              onChange={() => onAutoExecuteChange(true)}
+              disabled={isBusy}
+            />
+            <span>
+              <Play size={16} />
+              {copy.autoMode}
+            </span>
+          </label>
+        </div>
+        <button
+          type="button"
+          className="wide primary run-cta"
+          onClick={runAction}
+          disabled={runActionDisabled}
+          title={runActionDisabled ? runActionTitle : runActionLabel}
+        >
+          {runIcon}
+          {isRunningAgent ? copy.running : runActionLabel}
         </button>
-        <button type="button" onClick={onStartNewChat} disabled={Boolean(busy)}>
-          <Plus size={16} />
-          {copy.newChat}
-        </button>
-      </div>
-      <div className="button-row">
-        <button type="button" onClick={onPlanNextStep} disabled={!canRun || autoExecute}>
-          <StepForward size={16} />
-          {copy.plan}
-        </button>
-        <button type="button" onClick={onRunAutoLoop} disabled={!canRun || !autoExecute}>
-          {busy === 'Run agent' ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
-          {copy.run}
-        </button>
-      </div>
+      </section>
+
       <details className="compact-section">
         <summary>{copy.runOptions}</summary>
         <div className="run-options-panel">
@@ -143,20 +212,12 @@ export function RunPanel({
               onChange={(event) => onMaxStepsChange(Number(event.target.value))}
             />
           </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={autoExecute}
-              onChange={(event) => onAutoExecuteChange(event.target.checked)}
-            />
-            <span>{copy.autoExecute}</span>
-          </label>
-          <button type="button" className="wide danger" onClick={onStopRun} disabled={!busy}>
+          <button type="button" className="wide danger" onClick={onStopRun} disabled={!busyTask}>
             <CircleStop size={16} />
             {copy.stop}
           </button>
           <div className="button-row">
-            <button type="button" onClick={onResetSession} disabled={Boolean(busy)}>
+            <button type="button" onClick={onResetSession} disabled={isBusy}>
               <RotateCcw size={16} />
               {copy.reset}
             </button>
@@ -168,21 +229,24 @@ export function RunPanel({
         </div>
       </details>
 
-      <div className="pending-action">
+      <div className={`pending-action ${pendingStep ? 'ready' : 'empty'}`}>
         <div className="pending-header">
           <span>{copy.pendingAction}</span>
           {pendingStep ? <small>{copy.step} {pendingStep.index}</small> : null}
         </div>
         <p>{pendingStep ? buildActionPreview(pendingStep.action) : copy.none}</p>
-        <button
-          type="button"
-          className="wide primary"
-          onClick={onExecutePendingStep}
-          disabled={!pendingStep || Boolean(busy)}
-        >
-          <Check size={16} />
-          {pendingActionLabel(pendingStep?.action.action, copy)}
-        </button>
+        {pendingStep ? (
+          <button
+            type="button"
+            className="wide primary"
+            onClick={onExecutePendingStep}
+            disabled={isBusy}
+            title={busyTask ? copy.waitForCurrentRun : pendingActionLabel(pendingStep.action.action, copy)}
+          >
+            <Check size={16} />
+            {pendingActionLabel(pendingStep.action.action, copy)}
+          </button>
+        ) : null}
       </div>
     </>
   )

@@ -4,17 +4,13 @@ import {
   Settings as SettingsIcon,
   Usb,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import './App.css'
-import type {
-  DeviceInfo,
-  DeviceScreenshot,
-  DeviceState,
-  InstalledApp,
-} from './adapters/deviceBackend'
-import { ADB_KEYBOARD_APK_URL } from './adapters/deviceBackend'
+import { useMemo, useRef, useState } from 'react'
+import { ADB_KEYBOARD_APK_URL } from './adapters/deviceCommands'
+import type { DeviceInfo, DeviceScreenshot, DeviceState, InstalledApp } from './adapters/deviceTypes'
+import { getInstalledAppDisplayName } from './adapters/installedApps'
 import { WebAdbDeviceBackend, isWebUsbSupported } from './adapters/webAdbBackend'
-import { buildActionPreview, type AgentAction } from './lib/actions'
+import { buildActionPreview } from './lib/actionPreview'
+import type { AgentAction } from './lib/actionTypes'
 import {
   addUserMessage,
   createAgentRunner,
@@ -31,25 +27,44 @@ import {
   summarizeDoctorResults,
   type DoctorCheckResult,
 } from './lib/deviceDoctor'
-import { createOpenAiClient, type ModelConfig } from './lib/openAiClient'
+import { createOpenAiClient } from './lib/openAiClient'
+import type { ModelConfig } from './lib/openAiTypes'
 import { APP_COPY, resolveLocale } from './lib/appCopy'
-import { readRepositoryStats, REPOSITORY_API_URL, type RepositoryStats } from './lib/repository'
+import { useBusyTask } from './hooks/useBusyTask'
+import { useDeviceBackendPreferences } from './hooks/useDeviceBackendPreferences'
+import { useDocumentPreferences } from './hooks/useDocumentPreferences'
+import { usePersistedSettings } from './hooks/usePersistedSettings'
+import { useRepositoryStats } from './hooks/useRepositoryStats'
+import { useRunLog } from './hooks/useRunLog'
 import { modelScreenshotView } from './lib/screenshotCoordinates'
-import { loadSettings, saveSettings } from './lib/settings'
+import { loadSettings, type AppSettings } from './lib/settings'
 import { TASK_TEMPLATES } from './lib/taskTemplates'
 import { createDefaultActionToolRegistry } from './lib/toolRegistry'
+import {
+  buildAgentStepTimeline,
+  formatAgentStepDetail,
+  formatScreenCaptureDetail,
+  toLogScreenshot,
+} from './lib/runLogEntries'
 import { DevicePanel } from './components/DevicePanel'
 import { ModelPanel } from './components/ModelPanel'
 import { PhoneStage } from './components/PhoneStage'
-import { RunLog, type LogEntry, type LogScreenshot } from './components/RunLog'
+import { RunLog } from './components/RunLog'
 import { RunPanel } from './components/RunPanel'
 import { SettingsDialog } from './components/SettingsDialog'
+
+type DeviceSnapshotUpdate = {
+  currentApp: string
+  deviceState: DeviceState
+  screenshot: DeviceScreenshot
+}
 
 function App() {
   const abortRef = useRef<AbortController | null>(null)
   const settings = useMemo(() => loadSettings(), [])
-  const sessionRef = useRef<AgentSession>(createAgentSession(settings.task))
-  const [conversation, setConversation] = useState(() => [...sessionRef.current.messages])
+  const initialSession = useMemo(() => createAgentSession(settings.task), [settings.task])
+  const sessionRef = useRef<AgentSession>(initialSession)
+  const [conversation, setConversation] = useState(() => [...initialSession.messages])
   const [backend] = useState(() => new WebAdbDeviceBackend())
   const client = useMemo(() => createOpenAiClient(), [])
   const actionToolRegistry = useMemo(() => createDefaultActionToolRegistry(), [])
@@ -75,26 +90,23 @@ function App() {
   const [doctorResults, setDoctorResults] = useState<DoctorCheckResult[]>([])
   const [screenshot, setScreenshot] = useState<DeviceScreenshot | null>(null)
   const [pendingStep, setPendingStep] = useState<AgentStep | null>(null)
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { logs, addLog, clearLogs } = useRunLog()
+  const { busyTask, error, runTask, setError } = useBusyTask(({ label, message }) => {
+    addLog({ tone: 'error', title: label, detail: message })
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [repositoryStats, setRepositoryStats] = useState<RepositoryStats | null>(null)
-  const [repositoryStatsStatus, setRepositoryStatsStatus] = useState<'idle' | 'loading' | 'done' | 'error'>(
-    'idle',
-  )
+  const { repositoryStats, repositoryStatsStatus } = useRepositoryStats(settingsOpen)
 
   const connected = deviceInfo !== null
   const hasModelConfig = Boolean(modelConfig.baseUrl && modelConfig.apiKey && modelConfig.model)
   const hasConversation = conversation.some((message) => message.role === 'user')
-  const canRun = connected && !busy && hasModelConfig && hasConversation
+  const canRun = connected && !busyTask && hasModelConfig && hasConversation
   const displayedScreenshot = screenshot ? modelScreenshotView(screenshot) : null
   const activeLocale = useMemo(() => resolveLocale(languageMode), [languageMode])
   const copy = APP_COPY[activeLocale]
   const taskTemplates = TASK_TEMPLATES[activeLocale]
-
-  useEffect(() => {
-    saveSettings({
+  const currentSettings = useMemo<AppSettings>(
+    () => ({
       modelConfig,
       task,
       maxSteps,
@@ -107,85 +119,30 @@ function App() {
       keyboardStepMs,
       themeMode,
       languageMode,
-    })
-  }, [
-    actionSettleMs,
-    autoExecute,
-    confirmSensitiveActions,
-    doubleTapIntervalMs,
-    keyboardStepMs,
-    languageMode,
-    maxSteps,
-    modelConfig,
-    preferAdbKeyboard,
-    streamResponses,
-    task,
-    themeMode,
-  ])
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = themeMode
-  }, [themeMode])
-
-  useEffect(() => {
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
-
-    function syncSystemTheme() {
-      if (themeMode === 'system' && media?.matches) {
-        document.documentElement.dataset.systemTheme = 'dark'
-        return
-      }
-      delete document.documentElement.dataset.systemTheme
-    }
-
-    syncSystemTheme()
-    media?.addEventListener('change', syncSystemTheme)
-    return () => media?.removeEventListener('change', syncSystemTheme)
-  }, [themeMode])
-
-  useEffect(() => {
-    document.documentElement.lang = activeLocale
-  }, [activeLocale])
-
-  useEffect(() => {
-    backend.setPreferAdbKeyboard(preferAdbKeyboard)
-  }, [backend, preferAdbKeyboard])
-
-  useEffect(() => {
-    backend.setTimingConfig({
+    }),
+    [
       actionSettleMs,
+      autoExecute,
+      confirmSensitiveActions,
       doubleTapIntervalMs,
       keyboardStepMs,
-    })
-  }, [actionSettleMs, backend, doubleTapIntervalMs, keyboardStepMs])
-
-  useEffect(() => {
-    if (!settingsOpen || repositoryStatsStatus !== 'idle') {
-      return
-    }
-
-    async function loadRepositoryStats() {
-      if (typeof fetch !== 'function') {
-        setRepositoryStatsStatus('error')
-        return
-      }
-
-      setRepositoryStatsStatus('loading')
-      try {
-        const response = await fetch(REPOSITORY_API_URL)
-        if (!response.ok) {
-          throw new Error(`GitHub responded with ${response.status}`)
-        }
-        const payload = await response.json()
-        setRepositoryStats(readRepositoryStats(payload))
-        setRepositoryStatsStatus('done')
-      } catch {
-        setRepositoryStatsStatus('error')
-      }
-    }
-
-    void loadRepositoryStats()
-  }, [settingsOpen, repositoryStatsStatus])
+      languageMode,
+      maxSteps,
+      modelConfig,
+      preferAdbKeyboard,
+      streamResponses,
+      task,
+      themeMode,
+    ],
+  )
+  useDocumentPreferences(themeMode, activeLocale)
+  useDeviceBackendPreferences(backend, {
+    actionSettleMs,
+    doubleTapIntervalMs,
+    keyboardStepMs,
+    preferAdbKeyboard,
+  })
+  usePersistedSettings(currentSettings)
 
   function updateConfig<Key extends keyof ModelConfig>(key: Key, value: ModelConfig[Key]) {
     setModelConfig((current) => {
@@ -193,30 +150,7 @@ function App() {
     })
   }
 
-  function addLog(entry: Omit<LogEntry, 'id' | 'time'>) {
-    setLogs((current) => [
-      {
-        ...entry,
-        id: Date.now() + Math.random(),
-        time: new Intl.DateTimeFormat(undefined, {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        }).format(new Date()),
-      },
-      ...current,
-    ])
-  }
-
-  function applyDeviceSnapshot({
-    currentApp,
-    deviceState,
-    screenshot,
-  }: {
-    currentApp: string
-    deviceState: DeviceState
-    screenshot: DeviceScreenshot
-  }) {
+  function applyDeviceSnapshot({ currentApp, deviceState, screenshot }: DeviceSnapshotUpdate) {
     setScreenshot(screenshot)
     setCurrentApp(currentApp)
     setDeviceState(deviceState)
@@ -233,16 +167,13 @@ function App() {
     return { screenshot: nextScreenshot, deviceState: nextDeviceState }
   }
 
-  function toLogScreenshot(value: DeviceScreenshot | null | undefined): LogScreenshot | undefined {
-    if (!value) {
-      return undefined
-    }
-
-    const view = modelScreenshotView(value)
-    return {
-      dataUrl: view.dataUrl,
-      screen: view.screen,
-    }
+  function logScreenCapture(nextScreenshot: DeviceScreenshot, nextDeviceState: DeviceState) {
+    addLog({
+      tone: 'ok',
+      title: 'Screen captured',
+      detail: formatScreenCaptureDetail(nextScreenshot, nextDeviceState),
+      screenshot: toLogScreenshot(nextScreenshot),
+    })
   }
 
   function ensureSession() {
@@ -269,10 +200,6 @@ function App() {
     addLog({ tone: 'info', title: 'New chat started' })
   }
 
-  function clearRunLog() {
-    setLogs([])
-  }
-
   function applyTaskTemplate(prompt: string) {
     setChatInput(prompt)
   }
@@ -291,34 +218,6 @@ function App() {
         copy.sensitiveActionPrompt,
       ].join('\n'),
     )
-  }
-
-  function formatStepDetail(step: AgentStep) {
-    const timingDetail = [
-      `capture ${step.timing.captureMs}ms`,
-      `app ${step.timing.currentAppMs}ms`,
-      `model ${step.timing.modelMs}ms`,
-      `parse ${step.timing.parseMs}ms`,
-      `total ${step.timing.totalMs}ms`,
-    ].join(', ')
-
-    return [
-      `Current app: ${step.currentApp}`,
-      `Timing: ${timingDetail}`,
-      step.modelOutput,
-    ].join('\n\n')
-  }
-
-  function buildStepTimeline(step: AgentStep, executionResult?: string): LogEntry['timeline'] {
-    return {
-      step: step.index,
-      currentApp: step.currentApp,
-      packageName: step.deviceState.packageName,
-      modelOutput: step.modelOutput,
-      actionPreview: buildActionPreview(step.action),
-      executionActionPreview: buildActionPreview(step.executionAction),
-      executionResult,
-    }
   }
 
   function exportRunLog() {
@@ -353,32 +252,20 @@ function App() {
     addLog({ tone: 'ok', title: 'Run log exported' })
   }
 
-  async function runTask(label: string, action: () => Promise<void>) {
-    setBusy(label)
-    setError(null)
-    try {
-      await action()
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught)
-      setError(message)
-      addLog({ tone: 'error', title: label, detail: message })
-    } finally {
-      setBusy(null)
-    }
-  }
-
   async function connectDevice() {
-    await runTask('Connect device', async () => {
+    await runTask('connect-device', 'Connect device', async () => {
       const info = await backend.connect()
       setDeviceInfo(info)
       addLog({ tone: 'ok', title: 'Device connected', detail: `${info.name} (${info.serial})` })
-      await captureScreen()
+      const { screenshot: nextScreenshot, deviceState: nextDeviceState } =
+        await refreshDisplayedSnapshot()
+      logScreenCapture(nextScreenshot, nextDeviceState)
       await refreshInstalledApps()
     })
   }
 
   async function disconnectDevice() {
-    await runTask('Disconnect device', async () => {
+    await runTask('disconnect-device', 'Disconnect device', async () => {
       await backend.disconnect()
       setDeviceInfo(null)
       setCurrentApp('Unknown')
@@ -392,16 +279,10 @@ function App() {
   }
 
   async function captureScreen() {
-    await runTask('Capture screen', async () => {
+    await runTask('capture-screen', 'Capture screen', async () => {
       const { screenshot: nextScreenshot, deviceState: nextDeviceState } =
         await refreshDisplayedSnapshot()
-      const screenshotSize = `${nextScreenshot.screen.width}x${nextScreenshot.screen.height}`
-      addLog({
-        tone: 'ok',
-        title: 'Screen captured',
-        detail: [screenshotSize, formatDeviceState(nextDeviceState)].join('\n'),
-        screenshot: toLogScreenshot(nextScreenshot),
-      })
+      logScreenCapture(nextScreenshot, nextDeviceState)
     })
   }
 
@@ -419,7 +300,7 @@ function App() {
   }
 
   async function enableAdbKeyboard() {
-    await runTask('Enable ADB Keyboard', async () => {
+    await runTask('enable-adb-keyboard', 'Enable ADB Keyboard', async () => {
       const result = await backend.enableAdbKeyboard()
       setPreferAdbKeyboard(true)
       addLog({ tone: 'ok', title: 'ADB Keyboard enabled', detail: result })
@@ -427,7 +308,7 @@ function App() {
   }
 
   async function installAdbKeyboard() {
-    await runTask(copy.installAdbKeyboard, async () => {
+    await runTask('install-adb-keyboard', copy.installAdbKeyboard, async () => {
       if (typeof fetch !== 'function') {
         throw new Error('This browser cannot download the ADB Keyboard APK.')
       }
@@ -455,7 +336,7 @@ function App() {
   }
 
   async function runDoctor() {
-    await runTask(copy.runDoctor, async () => {
+    await runTask('run-doctor', copy.runDoctor, async () => {
       const results = await runDeviceDoctor({
         connected,
         device: backend,
@@ -478,7 +359,7 @@ function App() {
   }
 
   async function runDirectAction(action: AgentAction) {
-    await runTask(copy.directCommand, async () => {
+    await runTask('direct-command', copy.directCommand, async () => {
       const result = await backend.execute(action)
       addLog({
         tone: 'ok',
@@ -492,7 +373,7 @@ function App() {
   function launchInstalledApp(app: InstalledApp) {
     void runDirectAction({
       action: 'launch',
-      app: app.label || app.packageName,
+      app: getInstalledAppDisplayName(app),
       packageName: app.packageName,
     })
   }
@@ -503,7 +384,7 @@ function App() {
   }
 
   async function planNextStep() {
-    await runTask('Plan next action', async () => {
+    await runTask('plan-next-step', 'Plan next action', async () => {
       const session = ensureSession()
       const step = await runAgentStep({
         device: backend,
@@ -514,17 +395,15 @@ function App() {
         index: session.history.length + 1,
         onSnapshot: applyDeviceSnapshot,
       })
-      setScreenshot(step.screenshot)
-      setCurrentApp(step.currentApp)
-      setDeviceState(step.deviceState)
+      applyDeviceSnapshot(step)
       setPendingStep(step)
       syncConversation()
       addLog({
         tone: 'info',
         title: `Step ${step.index}: ${step.preview}`,
-        detail: formatStepDetail(step),
+        detail: formatAgentStepDetail(step),
         screenshot: toLogScreenshot(step.screenshot),
-        timeline: buildStepTimeline(step),
+        timeline: buildAgentStepTimeline(step),
       })
     })
   }
@@ -534,7 +413,7 @@ function App() {
       return
     }
 
-    await runTask('Execute action', async () => {
+    await runTask('execute-action', 'Execute action', async () => {
       if (pendingStep.action.action === 'done') {
         recordAgentStep(ensureSession(), pendingStep)
         addLog({ tone: 'ok', title: 'Task complete', detail: pendingStep.action.summary })
@@ -553,7 +432,7 @@ function App() {
         title: result.success ? `Executed ${pendingStep.preview}` : `Failed ${pendingStep.preview}`,
         detail: result.summary,
         screenshot: toLogScreenshot(pendingStep.screenshot),
-        timeline: buildStepTimeline(pendingStep, result.summary),
+        timeline: buildAgentStepTimeline(pendingStep, result.summary),
       })
       if (!result.success) {
         setError(result.summary)
@@ -569,7 +448,7 @@ function App() {
     abortRef.current = controller
     const session = ensureSession()
 
-    await runTask('Run agent', async () => {
+    await runTask('run-agent', 'Run agent', async () => {
       const runner = createAgentRunner({ device: backend, client, toolRegistry: actionToolRegistry })
       const result = await runner.run({
         modelConfig: { ...modelConfig, stream: streamResponses },
@@ -581,16 +460,14 @@ function App() {
         confirmSensitiveAction,
         onSnapshot: applyDeviceSnapshot,
         onStep: (step) => {
-          setScreenshot(step.screenshot)
-          setCurrentApp(step.currentApp)
-          setDeviceState(step.deviceState)
+          applyDeviceSnapshot(step)
           setPendingStep(step.action.action === 'done' ? null : step)
           addLog({
             tone: 'info',
             title: `Step ${step.index}: ${step.preview}`,
-            detail: formatStepDetail(step),
+            detail: formatAgentStepDetail(step),
             screenshot: toLogScreenshot(step.screenshot),
-            timeline: buildStepTimeline(step),
+            timeline: buildAgentStepTimeline(step),
           })
           syncConversation()
         },
@@ -600,7 +477,7 @@ function App() {
             title: `Executed ${step.preview}`,
             detail: commandResult,
             screenshot: toLogScreenshot(step.screenshot),
-            timeline: buildStepTimeline(step, commandResult),
+            timeline: buildAgentStepTimeline(step, commandResult),
           })
           await refreshDisplayedSnapshot()
           syncConversation()
@@ -638,7 +515,7 @@ function App() {
     setChatInput('')
     const session = ensureSession()
 
-    if (busy) {
+    if (busyTask) {
       queueUserMessage(session, message)
       syncConversation()
       addLog({ tone: 'info', title: 'User message queued', detail: message })
@@ -726,7 +603,7 @@ function App() {
 
           <DevicePanel
             actionSettleMs={actionSettleMs}
-            busy={busy}
+            busyTask={busyTask}
             connected={connected}
             copy={copy}
             currentApp={currentApp}
@@ -764,7 +641,7 @@ function App() {
         <aside className="panel run-panel">
           <RunPanel
             autoExecute={autoExecute}
-            busy={busy}
+            busyTask={busyTask}
             canRun={canRun}
             chatInput={chatInput}
             conversation={conversation}
@@ -791,7 +668,7 @@ function App() {
 
       <RunLog
         logs={logs}
-        onClear={clearRunLog}
+        onClear={clearLogs}
         labels={{
           clear: copy.clear,
           empty: copy.noEvents,
@@ -805,18 +682,6 @@ function App() {
       />
     </main>
   )
-}
-
-function formatDeviceState(state: DeviceState) {
-  return [
-    `Current app: ${state.app}`,
-    state.packageName ? `Package: ${state.packageName}` : null,
-    state.activity ? `Activity: ${state.activity}` : null,
-    state.orientation ? `Orientation: ${state.orientation}` : null,
-    state.keyboard ? `Keyboard: ${state.keyboard}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n')
 }
 
 export default App

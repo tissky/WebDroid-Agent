@@ -198,28 +198,71 @@ It is still strongly recommended to avoid letting the agent handle account login
 src/
   adapters/
     appPackages.ts            # common app-name to package-name mappings
-    deviceBackend.ts          # device backend interface
-    webAdbBackend.ts          # WebADB/WebUSB implementation
+    deviceBackend.ts          # device backend compatibility exports
+    deviceCommands.ts         # ADB command building, keyboard, and sensitive actions
+    deviceParsers.ts          # dumpsys and screenshot byte parsing
+    deviceRetry.ts            # device-read retry and delay helpers
+    deviceTypes.ts            # shared device backend types and errors
+    installedApps.ts          # installed-app parsing, search, and display names
     screenshotPreprocess.ts   # screenshot preprocessing
+    webAdbBackend.ts          # WebADB/WebUSB implementation
   components/
     DevicePanel.tsx           # device connection and execution settings panel
+    DeviceOptionsSection.tsx  # device input, confirmation, and timing options
+    DirectCommandsSection.tsx # direct ADB action panel
+    InstalledAppsSection.tsx  # installed-app search and launch controls
     ModelPanel.tsx            # model configuration panel
     PhoneStage.tsx            # phone screenshot and action overlay
     RunLog.tsx                # run log view
     RunPanel.tsx              # chat, run controls, and pending action view
     ScreenshotLightbox.tsx    # screenshot preview modal
     SettingsDialog.tsx        # app settings and repository information
+  hooks/
+    useBusyTask.ts                  # busy-task and error state management
+    useDeviceBackendPreferences.ts  # device backend preference sync
+    useDocumentPreferences.ts       # document theme and language attribute sync
+    usePersistedSettings.ts         # settings persistence on changes
+    useRepositoryStats.ts           # GitHub repository stats loading for settings
+    useRunLog.ts                    # run-log state management
   lib/
+    actionPreview.ts          # action preview text formatting
+    actionTypes.ts            # action types and validation error definitions
     actions.ts                # action parsing, normalization, and validation
     agent.ts                  # agent loop orchestration
-    appCopy.ts                # localized UI copy
-    openAiClient.ts           # OpenAI-compatible request building and response reading
+    appCards.ts               # model context cards for common apps
+    appCopy.ts                # localized copy aggregation and locale resolution
+    appCopy.en-US.ts          # English UI copy
+    appCopy.zh-CN.ts          # Chinese UI copy
+    busyTask.ts               # in-page busy task identifiers
+    deviceDoctor.ts           # device and model configuration diagnostics
+    deviceState.ts            # device state display formatting
+    openAiClient.ts           # OpenAI-compatible network client
+    openAiErrors.ts           # OpenAI client error types
+    openAiPayload.ts          # OpenAI-compatible request payload building
+    openAiResponse.ts         # OpenAI-compatible response reading and error formatting
+    openAiTypes.ts            # OpenAI client and message types
     prompts.ts                # prompts and action rules
     repository.ts             # repository links and GitHub stats parsing
+    runLogEntries.ts          # run-log entry and screenshot-view formatting
     screenshotCoordinates.ts  # screenshot coordinate mapping
     settings.ts               # local settings persistence
+    taskTemplates.ts          # example task templates
+    toolRegistry.ts           # agent action tool registration and execution
   styles/                     # styles split by page area
+    compact-section.css       # collapsible tool-section styles
+    config-panel.css          # device and model configuration panel styles
+    controls.css              # forms, buttons, and shared control styles
+    index.css                 # global style entrypoint
+    layout.css                # page layout and panel frames
+    phone-stage.css           # phone preview and action-overlay styles
+    responsive.css            # responsive layout adjustments
+    run-log.css               # run-log styles
+    run-panel.css             # chat and run-control styles
+    screenshot-lightbox.css   # screenshot preview modal styles
+    settings-dialog.css       # settings dialog styles
+    theme.css                 # theme tokens and base reset
   App.tsx                     # page state, workflow logic, and component composition
+  main.tsx                    # React entrypoint and global style loading
 ```
 
 ## Verification
@@ -233,7 +276,7 @@ npm run build
 The current tests mainly cover:
 
 - Action parsing and action safety validation.
-- OpenAI-compatible request construction.
+- OpenAI-compatible request payload construction, response parsing, and network client errors.
 - Single-step and continuous agent execution.
 - Settings persistence and compatibility migration.
 - Screenshot coordinate mapping.

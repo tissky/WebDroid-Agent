@@ -76,10 +76,18 @@ function mockSystemColorScheme(matches: boolean) {
   })
 }
 
-const layoutCss = readFileSync('src/styles/layout.css', 'utf8')
+const compactSectionCss = readFileSync('src/styles/compact-section.css', 'utf8')
+
+async function settleAsyncWork() {
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.resolve()
+  }
+}
 
 describe('App', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
+
     const values = new Map<string, string>()
     const storage = {
       getItem: vi.fn((key: string) => values.get(key) ?? null),
@@ -226,14 +234,14 @@ describe('App', () => {
   })
 
   it('styles collapsed sections as compact tool rows with custom affordances', () => {
-    expect(layoutCss).toContain('.compact-section > summary::marker')
-    expect(layoutCss).toContain('.compact-section > summary::-webkit-details-marker')
-    expect(layoutCss).toContain('.compact-section > summary::before')
-    expect(layoutCss).toContain('.compact-section > summary::after')
-    expect(layoutCss).toMatch(/\.compact-section > summary:hover[\s\S]*background:/)
-    expect(layoutCss).toMatch(/\.compact-section > summary:focus-visible[\s\S]*outline:/)
-    expect(layoutCss).toMatch(/\.compact-section\[open\] > summary::after[\s\S]*rotate/)
-    expect(layoutCss).toContain('.compact-section .direct-command-panel')
+    expect(compactSectionCss).toContain('.compact-section > summary::marker')
+    expect(compactSectionCss).toContain('.compact-section > summary::-webkit-details-marker')
+    expect(compactSectionCss).toContain('.compact-section > summary::before')
+    expect(compactSectionCss).toContain('.compact-section > summary::after')
+    expect(compactSectionCss).toMatch(/\.compact-section > summary:hover[\s\S]*background:/)
+    expect(compactSectionCss).toMatch(/\.compact-section > summary:focus-visible[\s\S]*outline:/)
+    expect(compactSectionCss).toMatch(/\.compact-section\[open\] > summary::after[\s\S]*rotate/)
+    expect(compactSectionCss).toContain('.compact-section .direct-command-panel')
   })
 
   it('opens settings with repository stats from the top right', async () => {
@@ -246,6 +254,54 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: /github repository/i }).getAttribute('href')).toBe(
       'https://github.com/yeahhe365/WebDroid-Agent',
     )
+    expect(await screen.findByText('123')).toBeTruthy()
+    expect(screen.getByText('45')).toBeTruthy()
+    expect(screen.getByText('6')).toBeTruthy()
+  })
+
+  it('retries repository stats after settings reopen if the first request was canceled', async () => {
+    let resolveFirstRequest: (value: Response) => void = () => {}
+    const firstRequest = new Promise<Response>((resolve) => {
+      resolveFirstRequest = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstRequest)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({
+          stargazers_count: 123,
+          forks_count: 45,
+          open_issues_count: 6,
+        }),
+      } as unknown as Response)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: fetchMock,
+    })
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+    expect(await screen.findByRole('dialog', { name: /settings/i })).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /close settings/i }))
+
+    resolveFirstRequest({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        stargazers_count: 999,
+        forks_count: 999,
+        open_issues_count: 999,
+      }),
+    } as unknown as Response)
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('123')).toBeTruthy()
     expect(screen.getByText('45')).toBeTruthy()
     expect(screen.getByText('6')).toBeTruthy()
@@ -368,6 +424,18 @@ describe('App', () => {
 
     expect(await screen.findByRole('dialog', { name: /android screenshot/i })).toBeTruthy()
     expect(screen.getByAltText('Expanded screenshot for Android screenshot')).toBeTruthy()
+  })
+
+  it('stops the connect flow when the initial screenshot capture fails', async () => {
+    backendMock.screenshot.mockRejectedValueOnce(new Error('camera offline'))
+
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /connect/i })[0])
+
+    await waitFor(() => expect(screen.getAllByText('camera offline').length).toBeGreaterThan(0))
+    await settleAsyncWork()
+    expect(backendMock.getInstalledApps).not.toHaveBeenCalled()
   })
 
   it('runs device doctor checks from the device panel', async () => {
@@ -520,6 +588,45 @@ describe('App', () => {
       action: 'launch',
       app: 'Gmail',
       packageName: 'com.google.android.gm',
+    })
+  })
+
+  it('searches installed apps by known display names when Android labels are missing', async () => {
+    backendMock.getInstalledApps.mockResolvedValue([
+      {
+        label: 'null icon=0x0 banner=0x0',
+        packageName: 'com.android.mms',
+      },
+      {
+        label: 'null icon=0x7f0804b7 banner=0x0',
+        packageName: 'com.android.contacts',
+      },
+      {
+        label: 'Chrome',
+        packageName: 'com.android.chrome',
+      },
+    ])
+
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /connect/i })[0])
+    expect(await screen.findByText('Pixel')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Installed apps'))
+    const appSearch = await screen.findByLabelText(/app search/i)
+    fireEvent.change(appSearch, { target: { value: '短信' } })
+
+    expect(screen.getByText('短信')).toBeTruthy()
+    expect(screen.getByText('com.android.mms')).toBeTruthy()
+    expect(screen.queryByText(/null icon=/)).toBeNull()
+    expect(screen.queryByText('Chrome')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /launch 短信/i }))
+
+    expect(backendMock.execute).toHaveBeenCalledWith({
+      action: 'launch',
+      app: '短信',
+      packageName: 'com.android.mms',
     })
   })
 

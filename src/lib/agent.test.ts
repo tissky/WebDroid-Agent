@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { DeviceBackend } from '../adapters/deviceBackend'
+import type { DeviceBackend } from '../adapters/deviceTypes'
 import {
   createAgentRunner,
   createAgentSession,
@@ -7,7 +7,7 @@ import {
   recordAgentStep,
   runAgentStep,
 } from './agent'
-import type { OpenAiClient } from './openAiClient'
+import type { OpenAiClient } from './openAiTypes'
 
 function fakeDevice(): DeviceBackend & { executed: string[] } {
   const executed: string[] = []

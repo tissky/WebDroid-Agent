@@ -9,6 +9,23 @@ export type ScreenshotSource = {
   }
 }
 
+export type ScreenshotLightboxProps = {
+  screenshot: ScreenshotSource
+  title: string
+  thumbnailAlt: string
+  expandedAlt: string
+  openButtonLabel?: string
+  dialogLabel?: string
+  closeLabel?: string
+  thumbnailClassName: string
+  overlayClassName?: string
+  modalClassName?: string
+  panelClassName?: string
+  headerClassName?: string
+  closeClassName?: string
+  children?: ReactNode
+}
+
 export function ScreenshotLightbox({
   screenshot,
   title,
@@ -24,22 +41,7 @@ export function ScreenshotLightbox({
   headerClassName = 'screenshot-modal-header',
   closeClassName = 'screenshot-modal-close',
   children,
-}: {
-  screenshot: ScreenshotSource
-  title: string
-  thumbnailAlt: string
-  expandedAlt: string
-  openButtonLabel?: string
-  dialogLabel?: string
-  closeLabel?: string
-  thumbnailClassName: string
-  overlayClassName?: string
-  modalClassName?: string
-  panelClassName?: string
-  headerClassName?: string
-  closeClassName?: string
-  children?: ReactNode
-}) {
+}: ScreenshotLightboxProps) {
   const [open, setOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
   const zoomPercent = Math.round(zoom * 100)

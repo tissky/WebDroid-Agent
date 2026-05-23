@@ -1,5 +1,5 @@
-import type { DeviceBackend, ExecuteActionOptions } from '../adapters/deviceBackend'
-import type { AgentAction } from './actions'
+import type { DeviceBackend, ExecuteActionOptions } from '../adapters/deviceTypes'
+import type { AgentAction } from './actionTypes'
 
 export type ActionToolParameter = {
   type: 'string' | 'number' | 'boolean' | 'object' | 'list'

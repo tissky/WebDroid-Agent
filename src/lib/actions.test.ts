@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { buildActionPreview } from './actionPreview'
 import {
   ActionValidationError,
-  buildActionPreview,
   parseModelAction,
   validateAction,
 } from './actions'

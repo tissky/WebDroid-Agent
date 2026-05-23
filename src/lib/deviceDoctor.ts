@@ -1,7 +1,7 @@
-import type { DeviceBackend, DeviceInfo, DeviceScreenshot, DeviceState } from '../adapters/deviceBackend'
-import { isAdbKeyboardInstalled } from '../adapters/deviceBackend'
-import type { ModelConfig } from './openAiClient'
+import { isAdbKeyboardInstalled } from '../adapters/deviceCommands'
+import type { DeviceBackend, DeviceInfo, DeviceScreenshot, DeviceState } from '../adapters/deviceTypes'
 import { normalizeBaseUrl } from './openAiClient'
+import type { ModelConfig } from './openAiTypes'
 
 export type DoctorCheckStatus = 'ok' | 'warn' | 'error' | 'skipped'
 
@@ -109,7 +109,7 @@ export async function runDeviceDoctor({
   if (deviceReady) {
     try {
       const deviceState = await device.getDeviceState()
-      results.push(ok('current_app', 'Current app', formatDeviceState(deviceState)))
+      results.push(ok('current_app', 'Current app', formatDoctorDeviceState(deviceState)))
       results.push(
         deviceState.keyboard
           ? ok('keyboard', 'Input method', deviceState.keyboard)
@@ -260,7 +260,7 @@ function skipped(id: DoctorCheckId, title: string, detail: string): DoctorCheckR
   return { id, title, status: 'skipped', detail }
 }
 
-function formatDeviceState(state: DeviceState) {
+function formatDoctorDeviceState(state: DeviceState) {
   return [
     state.app,
     state.packageName ? `package=${state.packageName}` : null,

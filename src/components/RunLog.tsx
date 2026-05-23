@@ -1,24 +1,33 @@
 import { RotateCcw, Trash2 } from 'lucide-react'
-import { ScreenshotLightbox, type ScreenshotSource } from './ScreenshotLightbox'
+import type { LogEntry } from '../lib/runLogEntries'
+import { ScreenshotLightbox } from './ScreenshotLightbox'
 
-export type LogScreenshot = ScreenshotSource
+export type { LogEntry } from '../lib/runLogEntries'
 
-export type LogEntry = {
-  id: number
-  time: string
-  tone: 'info' | 'ok' | 'warn' | 'error'
+export type RunLogLabels = {
+  clear: string
+  closeScreenshotPreview: string
+  empty: string
+  openScreenshotFor: (title: string) => string
+  screenshotDialogFor: (title: string) => string
   title: string
-  detail?: string
-  screenshot?: LogScreenshot
-  timeline?: {
-    step?: number
-    currentApp?: string
-    packageName?: string
-    modelOutput?: string
-    actionPreview?: string
-    executionActionPreview?: string
-    executionResult?: string
-  }
+  screenshotFor: (title: string) => string
+  expandedScreenshotFor: (title: string) => string
+}
+
+export type RunLogProps = {
+  logs: LogEntry[]
+  onClear: () => void
+  labels?: RunLogLabels
+}
+
+type StepTimelineProps = {
+  timeline: NonNullable<LogEntry['timeline']>
+}
+
+type TimelineFieldProps = {
+  label: string
+  value: string
 }
 
 export function RunLog({
@@ -34,20 +43,7 @@ export function RunLog({
     screenshotFor: (title: string) => `Screenshot for ${title}`,
     expandedScreenshotFor: (title: string) => `Expanded screenshot for ${title}`,
   },
-}: {
-  logs: LogEntry[]
-  onClear: () => void
-  labels?: {
-    clear: string
-    closeScreenshotPreview: string
-    empty: string
-    openScreenshotFor: (title: string) => string
-    screenshotDialogFor: (title: string) => string
-    title: string
-    screenshotFor: (title: string) => string
-    expandedScreenshotFor: (title: string) => string
-  }
-}) {
+}: RunLogProps) {
   return (
     <section className="log-section">
       <div className="panel-title log-title">
@@ -100,7 +96,7 @@ export function RunLog({
   )
 }
 
-function StepTimeline({ timeline }: { timeline: NonNullable<LogEntry['timeline']> }) {
+function StepTimeline({ timeline }: StepTimelineProps) {
   return (
     <div className="step-timeline">
       <div className="step-timeline-header">
@@ -132,7 +128,7 @@ function StepTimeline({ timeline }: { timeline: NonNullable<LogEntry['timeline']
   )
 }
 
-function TimelineField({ label, value }: { label: string; value: string }) {
+function TimelineField({ label, value }: TimelineFieldProps) {
   return (
     <div className="step-timeline-field">
       <span>{label}</span>

@@ -1,4 +1,5 @@
-const APP_PACKAGES: Record<string, string> = {
+const APP_PACKAGE_BY_ALIAS: Record<string, string> = {
+  // English and romanized aliases.
   alipay: 'com.eg.android.AlipayGphone',
   amazon: 'com.amazon.mShop.android.shopping',
   bilibili: 'tv.danmaku.bili',
@@ -13,7 +14,6 @@ const APP_PACKAGES: Record<string, string> = {
   files: 'com.google.android.documentsui',
   gmail: 'com.google.android.gm',
   googlemaps: 'com.google.android.apps.maps',
-  google浏览器: 'com.android.chrome',
   instagram: 'com.instagram.android',
   jd: 'com.jingdong.app.mall',
   jdcom: 'com.jingdong.app.mall',
@@ -36,13 +36,22 @@ const APP_PACKAGES: Record<string, string> = {
   xiaohongshu: 'com.xingin.xhs',
   youtube: 'com.google.android.youtube',
   zhihu: 'com.zhihu.android',
+  gallery: 'com.coloros.gallery3d',
+  mms: 'com.android.mms',
+  sms: 'com.android.mms',
+
+  // Chinese aliases.
   设置: 'com.android.settings',
   浏览器: 'com.android.chrome',
+  google浏览器: 'com.android.chrome',
   邮箱: 'com.google.android.gm',
   邮件: 'com.google.android.gm',
   相机: 'com.android.camera',
   电话: 'com.google.android.dialer',
   短信: 'com.google.android.apps.messaging',
+  联系人: 'com.android.contacts',
+  通讯录: 'com.android.contacts',
+  相册: 'com.coloros.gallery3d',
   地图: 'com.google.android.apps.maps',
   应用商店: 'com.android.vending',
   京东: 'com.jingdong.app.mall',
@@ -61,14 +70,17 @@ const APP_PACKAGES: Record<string, string> = {
   网易云音乐: 'com.netease.cloudmusic',
 }
 
-const APP_DISPLAY_NAMES: Record<string, string> = {
+const APP_DISPLAY_NAME_BY_PACKAGE: Record<string, string> = {
   'com.android.camera': 'camera',
+  'com.android.contacts': '联系人',
+  'com.android.mms': '短信',
   'com.android.settings': 'settings',
   'com.android.vending': 'playstore',
   'com.amazon.mShop.android.shopping': 'amazon',
   'com.android.chrome': 'chrome',
   'com.autonavi.minimap': '高德地图',
   'com.baidu.BaiduMap': '百度地图',
+  'com.coloros.gallery3d': '相册',
   'com.ebay.mobile': 'ebay',
   'com.eg.android.AlipayGphone': '支付宝',
   'com.google.android.apps.maps': 'maps',
@@ -103,17 +115,39 @@ const APP_DISPLAY_NAMES: Record<string, string> = {
   'tv.danmaku.bili': 'bilibili',
 }
 
+const ANDROID_PACKAGE_NAME_PATTERN = /^[a-z][a-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/
+
 export function resolveAppPackage(app: string): string | undefined {
   const direct = app.trim()
-  if (direct.includes('.')) {
-    return direct
+  const aliasPackage = APP_PACKAGE_BY_ALIAS[normalizeAppName(direct)]
+  if (aliasPackage) {
+    return aliasPackage
   }
 
-  return APP_PACKAGES[normalizeAppName(direct)]
+  if (ANDROID_PACKAGE_NAME_PATTERN.test(direct)) {
+    return direct
+  }
+  return undefined
 }
 
 export function resolveAppNameFromPackage(packageName: string) {
-  return APP_DISPLAY_NAMES[packageName]
+  return APP_DISPLAY_NAME_BY_PACKAGE[packageName]
+}
+
+export function resolveAppAliasesFromPackage(packageName: string) {
+  const aliases = new Set<string>()
+  const displayName = resolveAppNameFromPackage(packageName)
+  if (displayName) {
+    aliases.add(displayName)
+  }
+
+  for (const [alias, candidatePackage] of Object.entries(APP_PACKAGE_BY_ALIAS)) {
+    if (candidatePackage === packageName) {
+      aliases.add(alias)
+    }
+  }
+
+  return [...aliases]
 }
 
 function normalizeAppName(value: string) {

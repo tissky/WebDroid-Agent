@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AUTO_GLM_ACTION_SETTLE_DELAY_MS,
-  AUTO_GLM_DOUBLE_TAP_INTERVAL_MS,
+  DEFAULT_ACTION_SETTLE_DELAY_MS,
+  DEFAULT_DOUBLE_TAP_INTERVAL_MS,
   DEFAULT_DEVICE_TIMING,
   buildInputCommand,
   buildInputCommandSequence,
@@ -12,15 +12,23 @@ import {
   isAndroidInputTextSafe,
   isAdbKeyboardInstalled,
   keyToAndroidKeyCode,
-  parseInstalledAppsFromPackageOutput,
+} from './deviceCommands'
+import {
   parseCurrentAppFromDumpsys,
   parseDeviceStateFromDumpsys,
   parsePngSize,
+} from './deviceParsers'
+import {
+  parseInstalledAppsFromPackageOutput,
   resolveInstalledAppPackage,
+} from './installedApps'
+import {
   resolveAppNameFromPackage,
   resolveAppPackage,
+} from './appPackages'
+import {
   retryDeviceOperation,
-} from './deviceBackend'
+} from './deviceRetry'
 
 describe('buildInputCommand', () => {
   it('builds tap commands', () => {
@@ -71,11 +79,11 @@ describe('buildInputCommandSequence', () => {
   it('builds launch commands from package names and app labels', () => {
     expect(buildInputCommandSequence({ action: 'launch', app: 'Settings' })).toEqual([
       ['monkey', '-p', 'com.android.settings', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
     expect(buildInputCommandSequence({ action: 'launch', app: 'com.example.app' })).toEqual([
       ['monkey', '-p', 'com.example.app', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
@@ -86,7 +94,7 @@ describe('buildInputCommandSequence', () => {
       ]),
     ).toEqual([
       ['monkey', '-p', 'com.example.notes', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
@@ -95,32 +103,32 @@ describe('buildInputCommandSequence', () => {
       buildInputCommandSequence({ action: 'long_press', x: 10, y: 20, durationMs: 900 }),
     ).toEqual([
       ['input', 'swipe', '10', '20', '10', '20', '900'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(buildInputCommandSequence({ action: 'double_tap', x: 10, y: 20 })).toEqual([
       ['input', 'tap', '10', '20'],
-      { waitMs: AUTO_GLM_DOUBLE_TAP_INTERVAL_MS },
+      { waitMs: DEFAULT_DOUBLE_TAP_INTERVAL_MS },
       ['input', 'tap', '10', '20'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
   it('builds back and home commands', () => {
     expect(buildInputCommandSequence({ action: 'back' })).toEqual([
       ['input', 'keyevent', 'KEYCODE_BACK'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
     expect(buildInputCommandSequence({ action: 'home' })).toEqual([
       ['input', 'keyevent', 'KEYCODE_HOME'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
   it('waits for the UI to settle after primitive touch and text actions', () => {
     expect(buildInputCommandSequence({ action: 'tap', x: 12, y: 34 })).toEqual([
       ['input', 'tap', '12', '34'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(
@@ -134,12 +142,12 @@ describe('buildInputCommandSequence', () => {
       }),
     ).toEqual([
       ['input', 'swipe', '1', '2', '3', '4', '500'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(buildInputCommandSequence({ action: 'input_text', text: 'hello world' })).toEqual([
       ['input', 'text', 'hello%sworld'],
-      { waitMs: AUTO_GLM_ACTION_SETTLE_DELAY_MS },
+      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
@@ -209,6 +217,8 @@ describe('resolveAppPackage', () => {
   it('maps common Open-AutoGLM app names to Android packages', () => {
     expect(resolveAppPackage('京东')).toBe('com.jingdong.app.mall')
     expect(resolveAppPackage('YouTube')).toBe('com.google.android.youtube')
+    expect(resolveAppPackage('JD.com')).toBe('com.jingdong.app.mall')
+    expect(resolveAppPackage('com.example.app')).toBe('com.example.app')
   })
 
   it('keeps package display names independent from app alias order', () => {
@@ -255,16 +265,47 @@ package:com.example.notes
     ])
   })
 
+  it('ignores Android dump metadata when app labels are null or followed by icon fields', () => {
+    const apps = parseInstalledAppsFromPackageOutput(`
+ResolveInfo:
+  ActivityInfo:
+    name=com.android.mms.ui.ConversationList
+    packageName=com.android.mms
+    nonLocalizedLabel=null icon=0x0 banner=0x0
+ResolveInfo:
+  ActivityInfo:
+    name=com.coloros.gallery3d.app.Gallery
+    packageName=com.coloros.gallery3d
+    nonLocalizedLabel='相册' icon=0x7f110005 banner=0x0
+`)
+
+    expect(apps).toEqual([
+      {
+        packageName: 'com.android.mms',
+        activity: 'com.android.mms.ui.ConversationList',
+      },
+      {
+        packageName: 'com.coloros.gallery3d',
+        activity: 'com.coloros.gallery3d.app.Gallery',
+        label: '相册',
+      },
+    ])
+  })
+
   it('matches natural app names against installed labels, aliases, and package tokens', () => {
     const apps = parseInstalledAppsFromPackageOutput(`
       packageName=com.google.android.gm
       nonLocalizedLabel=Gmail
       packageName=com.android.chrome
+      packageName=com.android.mms
+      packageName=com.coloros.gallery3d
       packageName=com.example.notes
     `)
 
     expect(resolveInstalledAppPackage('Gmail', apps)).toBe('com.google.android.gm')
     expect(resolveInstalledAppPackage('浏览器', apps)).toBe('com.android.chrome')
+    expect(resolveInstalledAppPackage('短信', apps)).toBe('com.android.mms')
+    expect(resolveInstalledAppPackage('相册', apps)).toBe('com.coloros.gallery3d')
     expect(resolveInstalledAppPackage('notes', apps)).toBe('com.example.notes')
     expect(resolveInstalledAppPackage('com.example.notes', apps)).toBe('com.example.notes')
   })

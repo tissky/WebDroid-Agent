@@ -3,6 +3,17 @@ import type { AppCopy } from '../lib/appCopy'
 import { REPOSITORY_URL, type RepositoryStats } from '../lib/repository'
 import type { LanguageMode, ThemeMode } from '../lib/settings'
 
+export type SettingsDialogProps = {
+  copy: AppCopy
+  languageMode: LanguageMode
+  onLanguageModeChange: (value: LanguageMode) => void
+  onClose: () => void
+  onThemeModeChange: (value: ThemeMode) => void
+  repositoryStats: RepositoryStats | null
+  repositoryStatsStatus: 'idle' | 'loading' | 'done' | 'error'
+  themeMode: ThemeMode
+}
+
 export function SettingsDialog({
   copy,
   languageMode,
@@ -12,16 +23,7 @@ export function SettingsDialog({
   repositoryStats,
   repositoryStatsStatus,
   themeMode,
-}: {
-  copy: AppCopy
-  languageMode: LanguageMode
-  onLanguageModeChange: (value: LanguageMode) => void
-  onClose: () => void
-  onThemeModeChange: (value: ThemeMode) => void
-  repositoryStats: RepositoryStats | null
-  repositoryStatsStatus: 'idle' | 'loading' | 'done' | 'error'
-  themeMode: ThemeMode
-}) {
+}: SettingsDialogProps) {
   return (
     <div
       className="settings-page"

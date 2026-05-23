@@ -1,4 +1,4 @@
-import type { ScreenSize } from '../lib/actions'
+import type { ScreenSize } from '../lib/actionTypes'
 import {
   chooseGridDivisions,
   fitDimensionsToMaxSide,
@@ -11,17 +11,19 @@ export type PreprocessedScreenshot = {
   modelGridDivisions: number
 }
 
+export type ScreenshotPreprocessInput = {
+  dataUrl: string
+  screen: ScreenSize
+  drawGrid?: boolean
+  maxSide?: number
+}
+
 export async function preprocessScreenshotForModel({
   dataUrl,
   screen,
   drawGrid = true,
   maxSide = MODEL_SCREENSHOT_MAX_SIDE,
-}: {
-  dataUrl: string
-  screen: ScreenSize
-  drawGrid?: boolean
-  maxSide?: number
-}): Promise<PreprocessedScreenshot> {
+}: ScreenshotPreprocessInput): Promise<PreprocessedScreenshot> {
   const modelScreen = fitDimensionsToMaxSide(screen, maxSide)
   const modelGridDivisions = chooseGridDivisions(modelScreen)
 

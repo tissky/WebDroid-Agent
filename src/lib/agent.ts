@@ -4,15 +4,17 @@ import type {
   DeviceState,
   ExecuteActionOptions,
   InstalledApp,
-} from '../adapters/deviceBackend'
-import { type AgentAction, buildActionPreview, parseModelAction } from './actions'
+} from '../adapters/deviceTypes'
+import { buildActionPreview } from './actionPreview'
+import type { AgentAction } from './actionTypes'
+import { parseModelAction } from './actions'
 import { resolveAppCard } from './appCards'
 import type {
   AgentConversationMessage,
   AgentHistoryItem,
   ModelConfig,
   OpenAiClient,
-} from './openAiClient'
+} from './openAiTypes'
 import { mapActionCoordinates, modelScreenshotView } from './screenshotCoordinates'
 import {
   createDefaultActionToolRegistry,
@@ -82,6 +84,12 @@ export type AgentRunnerInput = {
   onStep?: (step: AgentStep) => void
   onExecuted?: (step: AgentStep, result: string) => void | Promise<void>
   confirmSensitiveAction?: ExecuteActionOptions['confirmSensitiveAction']
+}
+
+export type CreateAgentRunnerInput = {
+  device: DeviceBackend
+  client: OpenAiClient
+  toolRegistry?: ActionToolRegistry
 }
 
 export type AgentSession = {
@@ -295,11 +303,7 @@ export function createAgentRunner({
   device,
   client,
   toolRegistry = createDefaultActionToolRegistry(),
-}: {
-  device: DeviceBackend
-  client: OpenAiClient
-  toolRegistry?: ActionToolRegistry
-}) {
+}: CreateAgentRunnerInput) {
   return {
     async run(input: AgentRunnerInput): Promise<AgentRunResult> {
       const steps: AgentStep[] = []

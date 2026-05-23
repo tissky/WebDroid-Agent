@@ -1,6 +1,14 @@
 import { KeyRound } from 'lucide-react'
 import type { AppCopy } from '../lib/appCopy'
-import type { ModelConfig } from '../lib/openAiClient'
+import type { ModelConfig } from '../lib/openAiTypes'
+
+export type ModelPanelProps = {
+  copy: AppCopy
+  modelConfig: ModelConfig
+  onModelConfigChange: <Key extends keyof ModelConfig>(key: Key, value: ModelConfig[Key]) => void
+  onStreamResponsesChange: (value: boolean) => void
+  streamResponses: boolean
+}
 
 export function ModelPanel({
   copy,
@@ -8,13 +16,7 @@ export function ModelPanel({
   onModelConfigChange,
   onStreamResponsesChange,
   streamResponses,
-}: {
-  copy: AppCopy
-  modelConfig: ModelConfig
-  onModelConfigChange: <Key extends keyof ModelConfig>(key: Key, value: ModelConfig[Key]) => void
-  onStreamResponsesChange: (value: boolean) => void
-  streamResponses: boolean
-}) {
+}: ModelPanelProps) {
   return (
     <>
       <div className="panel-title">

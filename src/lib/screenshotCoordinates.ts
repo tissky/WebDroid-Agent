@@ -1,7 +1,17 @@
-import type { DeviceScreenshot } from '../adapters/deviceBackend'
-import type { AgentAction, ScreenSize } from './actions'
+import type { DeviceScreenshot } from '../adapters/deviceTypes'
+import type { AgentAction, ScreenSize } from './actionTypes'
 
 export const MODEL_SCREENSHOT_MAX_SIDE = 2048
+
+export type ModelScreenshotView = {
+  dataUrl: string
+  screen: ScreenSize
+}
+
+export type ScreenshotContextInput = {
+  modelScreen: ScreenSize
+  deviceScreen?: ScreenSize
+}
 
 export function fitDimensionsToMaxSide(
   screen: ScreenSize,
@@ -34,10 +44,7 @@ export function chooseGridDivisions(screen: ScreenSize) {
   return divisions
 }
 
-export function modelScreenshotView(screenshot: DeviceScreenshot): {
-  dataUrl: string
-  screen: ScreenSize
-} {
+export function modelScreenshotView(screenshot: DeviceScreenshot): ModelScreenshotView {
   return {
     dataUrl: screenshot.modelDataUrl ?? screenshot.dataUrl,
     screen: screenshot.modelScreen ?? screenshot.screen,
@@ -47,10 +54,7 @@ export function modelScreenshotView(screenshot: DeviceScreenshot): {
 export function buildScreenshotContext({
   modelScreen,
   deviceScreen,
-}: {
-  modelScreen: ScreenSize
-  deviceScreen?: ScreenSize
-}) {
+}: ScreenshotContextInput) {
   const resized =
     deviceScreen !== undefined &&
     (deviceScreen.width !== modelScreen.width || deviceScreen.height !== modelScreen.height)

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { DeviceBackend } from '../adapters/deviceBackend'
+import type { DeviceBackend } from '../adapters/deviceTypes'
 import { createDefaultActionToolRegistry } from './toolRegistry'
 
 function fakeDevice(): DeviceBackend & { executed: string[] } {

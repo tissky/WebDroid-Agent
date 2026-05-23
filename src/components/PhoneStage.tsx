@@ -1,22 +1,24 @@
 import { Check, Maximize2, Minimize2, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useState, type MouseEvent, type WheelEvent } from 'react'
-import type { AgentAction } from '../lib/actions'
-import { buildActionPreview } from '../lib/actions'
+import { buildActionPreview } from '../lib/actionPreview'
+import type { AgentAction } from '../lib/actionTypes'
 import type { AppCopy } from '../lib/appCopy'
 import type { AgentStep } from '../lib/agent'
 import { ScreenshotLightbox, type ScreenshotSource } from './ScreenshotLightbox'
+
+export type PhoneStageProps = {
+  copy: AppCopy
+  displayedScreenshot: ScreenshotSource | null
+  onRunInteractiveAction?: (action: AgentAction) => void
+  pendingStep: AgentStep | null
+}
 
 export function PhoneStage({
   copy,
   displayedScreenshot,
   onRunInteractiveAction,
   pendingStep,
-}: {
-  copy: AppCopy
-  displayedScreenshot: ScreenshotSource | null
-  onRunInteractiveAction?: (action: AgentAction) => void
-  pendingStep: AgentStep | null
-}) {
+}: PhoneStageProps) {
   const [draftAction, setDraftAction] = useState<AgentAction | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -241,13 +243,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-function ActionOverlay({
-  action,
-  screen,
-}: {
+type ActionOverlayProps = {
   action: AgentAction
   screen: { width: number; height: number }
-}) {
+}
+
+function ActionOverlay({ action, screen }: ActionOverlayProps) {
   if (action.action === 'tap' || action.action === 'long_press' || action.action === 'double_tap') {
     return (
       <span

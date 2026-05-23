@@ -2,23 +2,24 @@ import { Adb, AdbDaemonTransport } from '@yume-chan/adb'
 import AdbWebCredentialStore from '@yume-chan/adb-credential-web'
 import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb'
 import { ReadableStream } from '@yume-chan/stream-extra'
-import type { AgentAction } from '../lib/actions'
-import { preprocessScreenshotForModel } from './screenshotPreprocess'
+import type { AgentAction } from '../lib/actionTypes'
 import {
   ADB_KEYBOARD_REMOTE_APK_PATH,
   DEFAULT_DEVICE_TIMING,
   assertSensitiveActionConfirmed,
   buildInputCommandSequence,
-  bytesToDataUrl,
-  delay,
-  DeviceBackendError,
   encodeAdbKeyboardText,
   findAdbKeyboardIme,
   isAndroidInputTextSafe,
+} from './deviceCommands'
+import {
+  bytesToDataUrl,
   parseDeviceStateFromDumpsys,
-  parseInstalledAppsFromPackageOutput,
   parsePngSize,
-  retryDeviceOperation,
+} from './deviceParsers'
+import { retryDeviceOperation, delay } from './deviceRetry'
+import {
+  DeviceBackendError,
   type DeviceCommandStep,
   type DeviceBackend,
   type DeviceInfo,
@@ -27,7 +28,9 @@ import {
   type DeviceTimingConfig,
   type ExecuteActionOptions,
   type InstalledApp,
-} from './deviceBackend'
+} from './deviceTypes'
+import { parseInstalledAppsFromPackageOutput } from './installedApps'
+import { preprocessScreenshotForModel } from './screenshotPreprocess'
 
 const ADB_KEYBOARD_BROADCAST_ERROR = [
   'ADB Keyboard or AutoGLM Keyboard was detected but did not accept the text broadcast.',

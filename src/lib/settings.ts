@@ -1,4 +1,4 @@
-import type { ModelConfig } from './openAiClient'
+import type { ModelConfig } from './openAiTypes'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type LanguageMode = 'system' | 'zh-CN' | 'en-US'

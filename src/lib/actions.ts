@@ -1,140 +1,27 @@
-export type ScreenSize = {
-  width: number
-  height: number
-}
+import { ActionValidationError } from './actionTypes'
+import type { AgentAction, KeyAction, ScreenSize, TapAction } from './actionTypes'
 
-export type TapAction = {
-  action: 'tap'
-  x: number
-  y: number
-  message?: string
-  risk?: 'sensitive'
-  reason?: string
-}
-
-export type SwipeAction = {
-  action: 'swipe'
-  fromX: number
-  fromY: number
-  toX: number
-  toY: number
-  durationMs?: number
-  reason?: string
-}
-
-export type LaunchAction = {
-  action: 'launch'
-  app: string
-  packageName?: string
-  reason?: string
-}
-
-export type InputTextAction = {
-  action: 'input_text'
-  text: string
-  reason?: string
-}
-
-export type KeyAction = {
-  action: 'key'
-  key:
-    | 'BACK'
-    | 'HOME'
-    | 'ENTER'
-    | 'POWER'
-    | 'APP_SWITCH'
-    | 'MENU'
-    | 'VOLUME_UP'
-    | 'VOLUME_DOWN'
-    | 'CAMERA'
-    | 'SEARCH'
-  reason?: string
-}
-
-export type BackAction = {
-  action: 'back'
-  reason?: string
-}
-
-export type HomeAction = {
-  action: 'home'
-  reason?: string
-}
-
-export type LongPressAction = {
-  action: 'long_press'
-  x: number
-  y: number
-  durationMs: number
-  reason?: string
-}
-
-export type DoubleTapAction = {
-  action: 'double_tap'
-  x: number
-  y: number
-  reason?: string
-}
-
-export type WaitAction = {
-  action: 'wait'
-  ms: number
-  reason?: string
-}
-
-export type TakeOverAction = {
-  action: 'take_over'
-  message: string
-  reason?: string
-}
-
-export type NoteAction = {
-  action: 'note'
-  message: string
-  reason?: string
-}
-
-export type InteractAction = {
-  action: 'interact'
-  message: string
-  reason?: string
-}
-
-export type CallApiAction = {
-  action: 'call_api'
-  instruction: string
-  reason?: string
-}
-
-export type DoneAction = {
-  action: 'done'
-  summary?: string
-  reason?: string
-}
-
-export type AgentAction =
-  | TapAction
-  | SwipeAction
-  | LaunchAction
-  | InputTextAction
-  | KeyAction
-  | BackAction
-  | HomeAction
-  | LongPressAction
-  | DoubleTapAction
-  | WaitAction
-  | TakeOverAction
-  | NoteAction
-  | InteractAction
-  | CallApiAction
-  | DoneAction
-
-export class ActionValidationError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ActionValidationError'
-  }
-}
+export { ActionValidationError } from './actionTypes'
+export { buildActionPreview } from './actionPreview'
+export type {
+  AgentAction,
+  BackAction,
+  CallApiAction,
+  DoneAction,
+  DoubleTapAction,
+  HomeAction,
+  InputTextAction,
+  InteractAction,
+  KeyAction,
+  LaunchAction,
+  LongPressAction,
+  NoteAction,
+  ScreenSize,
+  SwipeAction,
+  TakeOverAction,
+  TapAction,
+  WaitAction,
+} from './actionTypes'
 
 export function parseModelAction(raw: string, screen?: ScreenSize): AgentAction {
   let candidate: unknown
@@ -267,45 +154,6 @@ export function validateAction(candidate: unknown, screen?: ScreenSize): AgentAc
     }
     default:
       throw new ActionValidationError(`Unsupported action "${action}".`)
-  }
-}
-
-export function buildActionPreview(action: AgentAction): string {
-  const suffix = action.reason ? ` - ${action.reason}` : ''
-
-  switch (action.action) {
-    case 'launch':
-      return `launch ${action.app}${action.packageName ? ` (${action.packageName})` : ''}${suffix}`
-    case 'tap':
-      return `tap (${action.x}, ${action.y})${suffix}`
-    case 'swipe':
-      return `swipe (${action.fromX}, ${action.fromY}) -> (${action.toX}, ${action.toY}), ${
-        action.durationMs ?? 400
-      }ms${suffix}`
-    case 'input_text':
-      return `input text "${truncate(action.text, 48)}"${suffix}`
-    case 'key':
-      return `press ${action.key}${suffix}`
-    case 'back':
-      return `back${suffix}`
-    case 'home':
-      return `home${suffix}`
-    case 'long_press':
-      return `long press (${action.x}, ${action.y}), ${action.durationMs}ms${suffix}`
-    case 'double_tap':
-      return `double tap (${action.x}, ${action.y})${suffix}`
-    case 'wait':
-      return `wait ${action.ms}ms${suffix}`
-    case 'take_over':
-      return `take over: ${action.message}${suffix}`
-    case 'note':
-      return `note: ${action.message}${suffix}`
-    case 'interact':
-      return `interact: ${action.message}${suffix}`
-    case 'call_api':
-      return `call api: ${action.instruction}${suffix}`
-    case 'done':
-      return `done${action.summary ? `: ${action.summary}` : ''}${suffix}`
   }
 }
 
@@ -611,8 +459,4 @@ function hasControlCharacters(value: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function truncate(value: string, maxLength: number) {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}...`
 }
