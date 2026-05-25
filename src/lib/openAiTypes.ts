@@ -1,4 +1,6 @@
 import type { DeviceState, InstalledApp } from '../adapters/deviceTypes'
+import type { ActionProtocol } from './actionProtocol'
+import type { CustomToolDescriptor, SecretDescriptor } from './agentResources'
 import type { ScreenSize } from './actionTypes'
 
 export type ModelConfig = {
@@ -9,6 +11,7 @@ export type ModelConfig = {
 }
 
 export type CompletionRequest = ModelConfig & {
+  actionProtocol?: ActionProtocol
   task: string
   conversation?: readonly AgentConversationMessage[]
   screenshotDataUrl: string
@@ -20,6 +23,9 @@ export type CompletionRequest = ModelConfig & {
   appCard?: string
   installedApps?: readonly InstalledApp[]
   promptContext?: string
+  customTools?: readonly CustomToolDescriptor[]
+  secrets?: readonly SecretDescriptor[]
+  unrestrictedMode?: boolean
   signal?: AbortSignal
 }
 

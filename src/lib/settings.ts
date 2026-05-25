@@ -1,13 +1,21 @@
 import type { ModelConfig } from './openAiTypes'
+import {
+  DEFAULT_ACTION_PROTOCOL,
+  isActionProtocol,
+  type ActionProtocol,
+} from './actionProtocol'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type LanguageMode = 'system' | 'zh-CN' | 'en-US'
 
 export type AppSettings = {
+  actionProtocol: ActionProtocol
   modelConfig: ModelConfig
   maxSteps: number
   preferAdbKeyboard: boolean
   confirmSensitiveActions: boolean
+  unrestrictedMode: boolean
+  screenBlackoutDuringAutoControl: boolean
   streamResponses: boolean
   actionSettleMs: number
   doubleTapIntervalMs: number
@@ -26,6 +34,7 @@ const LEGACY_BASE_URL_KEY = 'webadb-demo-base-url'
 const LEGACY_MODEL_KEY = 'webadb-demo-model'
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  actionProtocol: DEFAULT_ACTION_PROTOCOL,
   modelConfig: {
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
@@ -34,6 +43,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxSteps: 50,
   preferAdbKeyboard: false,
   confirmSensitiveActions: true,
+  unrestrictedMode: false,
+  screenBlackoutDuringAutoControl: false,
   streamResponses: false,
   actionSettleMs: 1000,
   doubleTapIntervalMs: 100,
@@ -81,6 +92,7 @@ function normalizeSettings(candidate: unknown): AppSettings {
   const modelConfig = isRecord(candidate.modelConfig) ? candidate.modelConfig : {}
 
   return {
+    actionProtocol: readActionProtocol(candidate.actionProtocol, DEFAULT_SETTINGS.actionProtocol),
     modelConfig: {
       baseUrl: readString(modelConfig.baseUrl, DEFAULT_SETTINGS.modelConfig.baseUrl),
       apiKey: readString(modelConfig.apiKey, DEFAULT_SETTINGS.modelConfig.apiKey),
@@ -91,6 +103,11 @@ function normalizeSettings(candidate: unknown): AppSettings {
     confirmSensitiveActions: readBoolean(
       candidate.confirmSensitiveActions,
       DEFAULT_SETTINGS.confirmSensitiveActions,
+    ),
+    unrestrictedMode: readBoolean(candidate.unrestrictedMode, DEFAULT_SETTINGS.unrestrictedMode),
+    screenBlackoutDuringAutoControl: readBoolean(
+      candidate.screenBlackoutDuringAutoControl,
+      DEFAULT_SETTINGS.screenBlackoutDuringAutoControl,
     ),
     streamResponses: readBoolean(candidate.streamResponses, DEFAULT_SETTINGS.streamResponses),
     actionSettleMs: readRangeNumber(candidate.actionSettleMs, DEFAULT_SETTINGS.actionSettleMs, 100, 5000),
@@ -129,6 +146,10 @@ function readThemeMode(value: unknown, fallback: ThemeMode): ThemeMode {
 
 function readLanguageMode(value: unknown, fallback: LanguageMode): LanguageMode {
   return value === 'system' || value === 'zh-CN' || value === 'en-US' ? value : fallback
+}
+
+function readActionProtocol(value: unknown, fallback: ActionProtocol): ActionProtocol {
+  return isActionProtocol(value) ? value : fallback
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

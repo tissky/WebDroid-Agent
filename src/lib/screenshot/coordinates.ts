@@ -1,7 +1,9 @@
-import type { DeviceScreenshot } from '../adapters/deviceTypes'
-import type { AgentAction, ScreenSize } from './actionTypes'
+import type { DeviceScreenshot } from '../../adapters/deviceTypes'
+import type { AgentAction, ScreenSize } from '../actionTypes'
 
-export const MODEL_SCREENSHOT_MAX_SIDE = 2048
+export const MODEL_SCREENSHOT_MAX_SIDE = 1536
+export const MODEL_SCREENSHOT_MIME_TYPE = 'image/jpeg'
+export const MODEL_SCREENSHOT_QUALITY = 0.82
 
 export type ModelScreenshotView = {
   dataUrl: string

@@ -51,6 +51,83 @@
   color: var(--accent);
 }
 
+.settings-toggle-field {
+  cursor: pointer;
+}
+
+.settings-toggle-field input {
+  justify-self: end;
+}
+
+.settings-storage,
+.settings-data-management,
+.settings-resource-management {
+  background: var(--subtle-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.settings-storage div,
+.settings-data-management-title,
+.settings-resource-title {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.settings-storage span,
+.settings-data-management-title,
+.settings-resource-title {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-storage svg,
+.settings-data-management svg,
+.settings-resource-management svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.settings-resource-title button {
+  margin-left: auto;
+}
+
+.settings-resource-management textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  min-height: 132px;
+  resize: vertical;
+}
+
+.settings-data-management button.danger svg {
+  color: var(--danger);
+}
+
+.settings-storage strong {
+  color: var(--text);
+  font-size: 14px;
+  text-align: right;
+}
+
+.settings-storage meter {
+  height: 8px;
+  width: 100%;
+}
+
+.settings-data-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .repository-link {
   align-items: center;
   background: var(--subtle-bg);

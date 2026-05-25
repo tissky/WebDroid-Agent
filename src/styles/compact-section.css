@@ -6,6 +6,7 @@
   gap: 10px;
   overflow: hidden;
   padding: 0;
+  scroll-margin: 14px;
   transition:
     background 120ms ease-out,
     border-color 120ms ease-out,

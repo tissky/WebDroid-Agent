@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createAgentThread, startThreadTurn } from './agentThread'
+import { createAgentThread, recordThreadTurnExecution, startThreadTurn } from './agentThread'
 import type { AgentAction } from './actionTypes'
 import {
   buildAgentPromptContext,
@@ -141,6 +141,9 @@ describe('context builder', () => {
     expect(thread.contextSummary).toContain('Step 1')
     expect(thread.contextCompactedThroughStep).toBe(4)
     expect(thread.turns).toHaveLength(6)
+    expect(thread.turns[0].promptContext).toBe('')
+    expect(thread.turns[3].promptContext).toBe('')
+    expect(thread.turns[4].promptContext).toBe('prompt')
     expect(thread.events.at(-1)).toEqual(
       expect.objectContaining({
         type: 'context_compaction',
@@ -193,6 +196,44 @@ describe('context builder', () => {
     expect(context.text).toContain('<pending_user_messages>')
     expect(context.text).toContain('- Open Bluetooth')
     expect(context.text).toContain('- Then show paired devices')
+  })
+
+  it('surfaces recent failed action feedback for recovery planning', () => {
+    const thread = createAgentThread('Open app', { id: 'thread-errors', now: 1000 })
+    const turn = startThreadTurn(thread, {
+      id: 'turn-failed',
+      index: 1,
+      task: 'Open app',
+      promptContext: 'prompt',
+      modelOutput: '{"action":"tap","x":100,"y":200}',
+      action,
+      executionAction: action,
+      preview: 'tap (100, 200)',
+      deviceSnapshot: {
+        currentApp: 'Chrome',
+        deviceState: { app: 'Chrome' },
+      },
+      timing,
+      now: 1100,
+    })
+    recordThreadTurnExecution(thread, turn.id, {
+      executionResult: 'tap failed: stale coordinates',
+      success: false,
+      now: 1200,
+    })
+
+    const context = buildAgentPromptContext({
+      thread,
+      task: 'Open app',
+      screen: { width: 1080, height: 2400 },
+      currentApp: 'Chrome',
+      deviceState: { app: 'Chrome' },
+    })
+
+    expect(context.text).toContain('<recent_action_errors>')
+    expect(context.text).toContain('action=tap (100, 200)')
+    expect(context.text).toContain('feedback=tap failed: stale coordinates')
+    expect(context.text).toContain('do not repeat the exact same failed action')
   })
 
   it('does not count planned turns against the recent turn compaction window', () => {

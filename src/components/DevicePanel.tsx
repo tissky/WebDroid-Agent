@@ -21,24 +21,33 @@ import { DirectCommandsSection } from './DirectCommandsSection'
 import { InstalledAppsSection } from './InstalledAppsSection'
 
 export type DevicePanelProps = {
-  actionSettleMs: number
-  busyTask: BusyTask | null
-  confirmSensitiveActions: boolean
-  connected: boolean
   copy: AppCopy
+  state: DevicePanelState
+  options: DevicePanelOptions
+  actions: DevicePanelActions
+  sectionIds?: DevicePanelSectionIds
+}
+
+export type DevicePanelState = {
+  busyTask: BusyTask | null
+  connected: boolean
   currentApp: string
   deviceInfo: DeviceInfo | null
-  deviceOptionsSectionId?: string
-  deviceSectionId?: string
-  directCommandsSectionId?: string
   doctorResults: DoctorCheckResult[]
-  doctorSectionId?: string
   deviceState: DeviceState
-  doubleTapIntervalMs: number
   installedApps: InstalledApp[]
-  installedAppsSectionId?: string
+}
+
+export type DevicePanelOptions = {
+  actionSettleMs: number
+  confirmSensitiveActions: boolean
+  doubleTapIntervalMs: number
   keyboardStepMs: number
   preferAdbKeyboard: boolean
+  unrestrictedMode: boolean
+}
+
+export type DevicePanelActions = {
   onActionSettleMsChange: (value: number) => void
   onCaptureScreen: () => void
   onConfirmSensitiveActionsChange: (value: boolean) => void
@@ -51,45 +60,61 @@ export type DevicePanelProps = {
   onPreferAdbKeyboardChange: (value: boolean) => void
   onRunDirectAction: (action: AgentAction) => void
   onRunDoctor: () => void
+  onUnrestrictedModeChange: (value: boolean) => void
+}
+
+export type DevicePanelSectionIds = {
+  device?: string
+  deviceOptions?: string
+  directCommands?: string
+  doctor?: string
+  installedApps?: string
 }
 
 export function DevicePanel({
-  actionSettleMs,
-  busyTask,
-  confirmSensitiveActions,
-  connected,
+  actions,
   copy,
-  currentApp,
-  deviceInfo,
-  deviceOptionsSectionId,
-  deviceSectionId,
-  directCommandsSectionId,
-  doctorResults,
-  doctorSectionId,
-  deviceState,
-  doubleTapIntervalMs,
-  installedApps,
-  installedAppsSectionId,
-  keyboardStepMs,
-  onActionSettleMsChange,
-  onCaptureScreen,
-  onConfirmSensitiveActionsChange,
-  onConfigureAdbKeyboard,
-  onConnectDevice,
-  onDisconnectDevice,
-  onDoubleTapIntervalMsChange,
-  onKeyboardStepMsChange,
-  onLaunchInstalledApp,
-  onPreferAdbKeyboardChange,
-  onRunDirectAction,
-  onRunDoctor,
-  preferAdbKeyboard,
+  options,
+  sectionIds = {},
+  state,
 }: DevicePanelProps) {
+  const {
+    busyTask,
+    connected,
+    deviceInfo,
+    deviceState,
+    doctorResults,
+    installedApps,
+    currentApp,
+  } = state
+  const {
+    actionSettleMs,
+    confirmSensitiveActions,
+    doubleTapIntervalMs,
+    keyboardStepMs,
+    preferAdbKeyboard,
+    unrestrictedMode,
+  } = options
+  const {
+    onActionSettleMsChange,
+    onCaptureScreen,
+    onConfirmSensitiveActionsChange,
+    onConfigureAdbKeyboard,
+    onConnectDevice,
+    onDisconnectDevice,
+    onDoubleTapIntervalMsChange,
+    onKeyboardStepMsChange,
+    onLaunchInstalledApp,
+    onPreferAdbKeyboardChange,
+    onRunDirectAction,
+    onRunDoctor,
+    onUnrestrictedModeChange,
+  } = actions
   const isBusy = Boolean(busyTask)
 
   return (
     <>
-      <section className="config-panel-group" id={deviceSectionId} aria-label={copy.device}>
+      <section className="config-panel-group" id={sectionIds.device} aria-label={copy.device}>
         <div className="panel-title">
           <Usb size={18} />
           <h2>{copy.device}</h2>
@@ -158,16 +183,6 @@ export function DevicePanel({
           <KeyRound size={16} />
           {copy.configureTextInput}
         </button>
-        <button
-          type="button"
-          className="wide"
-          id={doctorSectionId}
-          onClick={onRunDoctor}
-          disabled={isBusy}
-        >
-          <Stethoscope size={16} />
-          {copy.runDoctor}
-        </button>
       </section>
       <InstalledAppsSection
         busyTask={busyTask}
@@ -175,47 +190,59 @@ export function DevicePanel({
         copy={copy}
         installedApps={installedApps}
         onLaunchInstalledApp={onLaunchInstalledApp}
-        sectionId={installedAppsSectionId}
+        sectionId={sectionIds.installedApps}
       />
       <DirectCommandsSection
         busyTask={busyTask}
         connected={connected}
         copy={copy}
         onRunDirectAction={onRunDirectAction}
-        sectionId={directCommandsSectionId}
+        sectionId={sectionIds.directCommands}
       />
-      {doctorResults.length > 0 ? (
-        <details className="compact-section">
-          <summary>{copy.doctorChecks}</summary>
-          <section className="doctor-results" aria-label={copy.doctorChecks}>
-            <div className="doctor-check-list">
-              {doctorResults.map((result) => (
-                <article className={`doctor-check ${result.status}`} key={result.id}>
-                  <span>{result.status.toUpperCase()}</span>
-                  <div>
-                    <strong>{result.title}</strong>
-                    <p>{result.detail}</p>
-                    {result.fix ? <small>{result.fix}</small> : null}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </details>
-      ) : null}
+      <section className="config-panel-group" id={sectionIds.doctor} aria-label={copy.runDoctor}>
+        <div className="panel-title">
+          <Stethoscope size={18} />
+          <h2>{copy.runDoctor}</h2>
+        </div>
+        <button type="button" className="wide" onClick={onRunDoctor} disabled={isBusy}>
+          <Stethoscope size={16} />
+          {copy.runDoctor}
+        </button>
+        {doctorResults.length > 0 ? (
+          <details className="compact-section">
+            <summary>{copy.doctorChecks}</summary>
+            <section className="doctor-results" aria-label={copy.doctorChecks}>
+              <div className="doctor-check-list">
+                {doctorResults.map((result) => (
+                  <article className={`doctor-check ${result.status}`} key={result.id}>
+                    <span>{result.status.toUpperCase()}</span>
+                    <div>
+                      <strong>{result.title}</strong>
+                      <p>{result.detail}</p>
+                      {result.fix ? <small>{result.fix}</small> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </details>
+        ) : null}
+      </section>
       <DeviceOptionsSection
         actionSettleMs={actionSettleMs}
         confirmSensitiveActions={confirmSensitiveActions}
         copy={copy}
         doubleTapIntervalMs={doubleTapIntervalMs}
         keyboardStepMs={keyboardStepMs}
+        unrestrictedMode={unrestrictedMode}
         onActionSettleMsChange={onActionSettleMsChange}
         onConfirmSensitiveActionsChange={onConfirmSensitiveActionsChange}
         onDoubleTapIntervalMsChange={onDoubleTapIntervalMsChange}
         onKeyboardStepMsChange={onKeyboardStepMsChange}
         onPreferAdbKeyboardChange={onPreferAdbKeyboardChange}
+        onUnrestrictedModeChange={onUnrestrictedModeChange}
         preferAdbKeyboard={preferAdbKeyboard}
-        sectionId={deviceOptionsSectionId}
+        sectionId={sectionIds.deviceOptions}
       />
     </>
   )

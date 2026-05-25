@@ -1,0 +1,21 @@
+.capability-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.timing-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.capability-grid span {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 999px;
+  color: var(--accent-soft-text);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+}

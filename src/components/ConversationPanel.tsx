@@ -7,7 +7,7 @@ import type { AgentThreadSummary } from '../lib/threadStore'
 import { ChatPanel } from './ChatPanel'
 import { PendingActionCard } from './PendingActionCard'
 
-export type RunPanelProps = {
+export type ConversationPanelProps = {
   activeThreadId: string
   busyTask: BusyTask | null
   chatInput: string
@@ -28,7 +28,7 @@ export type RunPanelProps = {
   onToggleHistorySidebar: () => void
 }
 
-export function RunPanel({
+export function ConversationPanel({
   activeThreadId,
   busyTask,
   chatInput,
@@ -47,9 +47,9 @@ export function RunPanel({
   onToggleHistorySidebar,
   pendingStep,
   threadSummaries,
-}: RunPanelProps) {
+}: ConversationPanelProps) {
   return (
-    <>
+    <aside className="panel conversation-panel">
       <ChatPanel
         activeThreadId={activeThreadId}
         busyTask={busyTask}
@@ -77,6 +77,6 @@ export function RunPanel({
           pendingStep={pendingStep}
         />
       ) : null}
-    </>
+    </aside>
   )
 }

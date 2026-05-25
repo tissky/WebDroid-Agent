@@ -13,6 +13,8 @@ import {
 const screenshot: DeviceScreenshot = {
   bytes: new Uint8Array([1, 2, 3]),
   dataUrl: 'data:image/png;base64,abc',
+  modelDataUrl: 'data:image/png;base64,model',
+  modelScreen: { width: 540, height: 1200 },
   screen: { width: 1080, height: 2400 },
 }
 
@@ -97,6 +99,10 @@ describe('agent thread model', () => {
     expect(thread.turns).toEqual([
       expect.objectContaining({
         id: 'turn-1',
+        deviceSnapshot: {
+          currentApp: 'Settings',
+          deviceState: { app: 'Settings', packageName: 'com.android.settings' },
+        },
         status: 'executed',
         promptContext: 'Task: Open Bluetooth',
         modelOutput: '{"action":"tap","x":100,"y":200,"reason":"open"}',
@@ -111,6 +117,13 @@ describe('agent thread model', () => {
       'assistant_action',
       'action_execution',
     ])
+    expect(thread.lastScreenshot).toEqual({
+      dataUrl: 'data:image/png;base64,model',
+      modelScreen: { width: 540, height: 1200 },
+      screen: { width: 1080, height: 2400 },
+    })
+    expect(JSON.stringify(thread.turns)).not.toContain('base64')
+    expect(JSON.stringify(thread.events)).not.toContain('base64')
     expect(thread.history).toEqual([
       {
         step: 1,

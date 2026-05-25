@@ -17,6 +17,8 @@ export function buildActionPreview(action: AgentAction): string {
         action.text,
         48,
       )}"${suffix}`
+    case 'type_secret':
+      return `${action.clear ? 'replace text with' : 'input'} secret "${action.secretId}"${suffix}`
     case 'key':
       return `press ${action.key}${suffix}`
     case 'back':
@@ -37,6 +39,8 @@ export function buildActionPreview(action: AgentAction): string {
       return `interact: ${action.message}${suffix}`
     case 'call_api':
       return `call api: ${action.instruction}${suffix}`
+    case 'custom_tool':
+      return `custom tool ${action.tool}${suffix}`
     case 'done':
       return `done${action.summary ? `: ${action.summary}` : ''}${suffix}`
   }

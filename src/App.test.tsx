@@ -17,6 +17,8 @@ const backendMock = vi.hoisted(() => ({
   getInstalledApps: vi.fn(),
   installAdbKeyboard: vi.fn(),
   enableAdbKeyboard: vi.fn(),
+  startScreenBlackout: vi.fn(),
+  stopScreenBlackout: vi.fn(),
   execute: vi.fn(),
   setPreferAdbKeyboard: vi.fn(),
   setTimingConfig: vi.fn(),
@@ -29,6 +31,7 @@ const threadStoreMock = vi.hoisted(() => {
     loadLatest: vi.fn(),
     list: vi.fn(),
     delete: vi.fn(),
+    clear: vi.fn(),
   }
   return {
     store,
@@ -148,6 +151,15 @@ describe('App', () => {
       configurable: true,
       value: undefined,
     })
+    Object.defineProperty(globalThis.navigator, 'storage', {
+      configurable: true,
+      value: {
+        estimate: vi.fn(async () => ({
+          quota: 64 * 1024 * 1024,
+          usage: 5 * 1024 * 1024,
+        })),
+      },
+    })
 
     backendMock.connect.mockResolvedValue({
       serial: 'device-1',
@@ -176,12 +188,15 @@ describe('App', () => {
     ])
     backendMock.installAdbKeyboard.mockResolvedValue('installed')
     backendMock.enableAdbKeyboard.mockResolvedValue('enabled')
+    backendMock.startScreenBlackout.mockResolvedValue('screen dimmed')
+    backendMock.stopScreenBlackout.mockResolvedValue('screen restored')
     backendMock.execute.mockResolvedValue('ok')
     threadStoreMock.store.save.mockResolvedValue(undefined)
     threadStoreMock.store.load.mockResolvedValue(null)
     threadStoreMock.store.loadLatest.mockResolvedValue(null)
     threadStoreMock.store.list.mockResolvedValue([])
     threadStoreMock.store.delete.mockResolvedValue(undefined)
+    threadStoreMock.store.clear.mockResolvedValue(undefined)
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       value: vi.fn<typeof fetch>(async () =>
@@ -204,7 +219,49 @@ describe('App', () => {
 
     const logo = screen.getByRole('img', { name: /webdroid agent logo/i })
 
-    expect(logo.getAttribute('src')).toBe('/webdroid-agent-logo.png')
+    expect(logo.getAttribute('src')).toBe('/webdroid-agent-logo-128.png')
+  })
+
+  it('opens and closes the tutorial panel from the topbar', () => {
+    render(<App />)
+
+    const tutorialButton = screen.getByRole('button', { name: /open tutorial/i })
+    expect(tutorialButton.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('region', { name: /tutorial/i })).toBeNull()
+
+    fireEvent.click(tutorialButton)
+
+    expect(tutorialButton.getAttribute('aria-expanded')).toBe('true')
+    expect(tutorialButton.getAttribute('aria-controls')).toBe('tutorial-panel')
+    expect(tutorialButton.getAttribute('aria-label')).toBe('Close tutorial')
+    const tutorial = screen.getByRole('region', { name: /tutorial/i })
+    expect(within(tutorial).getByText('Quick start')).toBeTruthy()
+    expect(within(tutorial).getByText('Connect Android device')).toBeTruthy()
+
+    fireEvent.click(tutorialButton)
+
+    expect(tutorialButton.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('region', { name: /tutorial/i })).toBeNull()
+
+    fireEvent.click(tutorialButton)
+
+    const reopenedTutorial = screen.getByRole('region', { name: /tutorial/i })
+
+    fireEvent.click(within(reopenedTutorial).getByRole('button', { name: /close tutorial/i }))
+
+    expect(screen.queryByRole('region', { name: /tutorial/i })).toBeNull()
+  })
+
+  it('closes the tutorial panel when settings opens', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open tutorial/i }))
+    expect(screen.getByRole('region', { name: /tutorial/i })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+
+    expect(screen.queryByRole('region', { name: /tutorial/i })).toBeNull()
+    expect(await screen.findByRole('dialog', { name: /settings/i })).toBeTruthy()
   })
 
   it('clears run log entries from the log section', () => {
@@ -215,6 +272,20 @@ describe('App', () => {
 
     fireEvent.click(document.querySelector('.log-drawer > summary') as HTMLElement)
     fireEvent.click(screen.getByRole('button', { name: /clear/i }))
+
+    expect(screen.queryByText('New chat started')).toBeNull()
+    expect(screen.getAllByText('No events yet').length).toBeGreaterThan(0)
+  })
+
+  it('clears run log entries from settings', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /new chat/i }))
+    expect(screen.getAllByText('New chat started').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+    const settingsDialog = await screen.findByRole('dialog', { name: /settings/i })
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: /clear run log/i }))
 
     expect(screen.queryByText('New chat started')).toBeNull()
     expect(screen.getAllByText('No events yet').length).toBeGreaterThan(0)
@@ -285,6 +356,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('Device options'))
     expect(screen.getByLabelText(/confirm sensitive actions/i)).toBeTruthy()
+    expect(screen.getByLabelText(/unrestricted mode/i)).toBeTruthy()
     expect(screen.queryByLabelText(/confirm sensitive taps/i)).toBeNull()
   })
 
@@ -334,12 +406,39 @@ describe('App', () => {
     const settingsDialog = await screen.findByRole('dialog', { name: /settings/i })
     expect(settingsDialog).toBeTruthy()
     expect((within(settingsDialog).getByLabelText(/max steps/i) as HTMLInputElement).value).toBe('50')
+    const screenBlackoutToggle = within(settingsDialog).getByLabelText(
+      /dim screen during auto control/i,
+    ) as HTMLInputElement
+    expect(screenBlackoutToggle.checked).toBe(false)
+    fireEvent.click(screenBlackoutToggle)
+    expect(screenBlackoutToggle.checked).toBe(true)
+    expect(localStorage.setItem).toHaveBeenLastCalledWith(
+      'webdroid-agent-settings',
+      expect.stringContaining('"screenBlackoutDuringAutoControl":true'),
+    )
     expect(screen.getByRole('link', { name: /github repository/i }).getAttribute('href')).toBe(
       'https://github.com/yeahhe365/WebDroid-Agent',
     )
     expect(await screen.findByText('123')).toBeTruthy()
     expect(screen.getByText('45')).toBeTruthy()
     expect(screen.getByText('6')).toBeTruthy()
+    expect(await screen.findByText('5 MB of 64 MB')).toBeTruthy()
+    const cacheMeter = screen.getByLabelText(/local cache usage/i)
+    expect(cacheMeter.getAttribute('value')).toBe(String(5 * 1024 * 1024))
+    expect(cacheMeter.getAttribute('max')).toBe(String(64 * 1024 * 1024))
+  })
+
+  it('shows an unavailable local cache state when storage estimates are unsupported', async () => {
+    Object.defineProperty(globalThis.navigator, 'storage', {
+      configurable: true,
+      value: undefined,
+    })
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+
+    expect(await screen.findByText('Unavailable in this browser')).toBeTruthy()
   })
 
   it('retries repository stats after settings reopen if the first request was canceled', async () => {
@@ -604,6 +703,53 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /delete chat older task/i }))
 
     await waitFor(() => expect(threadStoreMock.store.delete).toHaveBeenCalledWith('thread-older'))
+  })
+
+  it('clears saved chat history from settings and resets the active conversation', async () => {
+    const latestThread = createAgentThread('Latest task', {
+      id: 'thread-latest',
+      now: 2000,
+    })
+    const olderThread = createAgentThread('Older task', {
+      id: 'thread-older',
+      now: 1000,
+    })
+    threadStoreMock.store.loadLatest.mockResolvedValue(latestThread)
+    threadStoreMock.store.list.mockResolvedValue([
+      {
+        id: latestThread.id,
+        title: latestThread.title,
+        task: latestThread.task,
+        status: latestThread.status,
+        createdAt: latestThread.createdAt,
+        updatedAt: latestThread.updatedAt,
+      },
+      {
+        id: olderThread.id,
+        title: olderThread.title,
+        task: olderThread.task,
+        status: olderThread.status,
+        createdAt: olderThread.createdAt,
+        updatedAt: olderThread.updatedAt,
+      },
+    ])
+
+    render(<App />)
+
+    const conversation = screen.getByLabelText('Conversation')
+    expect(await within(conversation).findByText('Latest task')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /open history sidebar/i }))
+    expect(await screen.findByText('Older task')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+    const settingsDialog = await screen.findByRole('dialog', { name: /settings/i })
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: /clear chat history/i }))
+
+    await waitFor(() => expect(threadStoreMock.store.clear).toHaveBeenCalledTimes(1))
+    expect(within(conversation).queryByText('Latest task')).toBeNull()
+    expect(screen.queryByText('Older task')).toBeNull()
+    expect(screen.getAllByText('Chat history cleared').length).toBeGreaterThan(0)
   })
 
   it('does not expose task template controls in the chat flow', () => {

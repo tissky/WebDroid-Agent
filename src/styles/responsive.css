@@ -50,7 +50,7 @@
     width: 32px;
   }
 
-  .settings-button {
+  .topbar-button {
     justify-self: end;
     min-height: 38px;
     width: 38px;
@@ -132,13 +132,13 @@
     width: 32px;
   }
 
-  .settings-button {
+  .topbar-button {
     min-height: 36px;
     padding: 0;
     width: 38px;
   }
 
-  .settings-button-label {
+  .topbar-button-label {
     display: none;
   }
 
@@ -154,5 +154,33 @@
 
   .repository-stats {
     grid-template-columns: 1fr;
+  }
+
+  .settings-data-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 980px) {
+  .tutorial-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .tutorial-panel {
+    padding: 14px;
+  }
+
+  .tutorial-header {
+    gap: 10px;
+  }
+
+  .tutorial-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-steps li {
+    min-height: 0;
   }
 }

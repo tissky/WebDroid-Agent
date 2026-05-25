@@ -5,19 +5,17 @@ import { ReadableStream } from '@yume-chan/stream-extra'
 import type { AgentAction } from '../lib/actionTypes'
 import {
   ADB_KEYBOARD_REMOTE_APK_PATH,
-  DEFAULT_DEVICE_TIMING,
-  assertSensitiveActionConfirmed,
-  buildInputCommandSequence,
   encodeAdbKeyboardText,
   findAdbKeyboardIme,
   isAndroidInputTextSafe,
-} from './deviceCommands'
+} from './adbKeyboard'
 import {
   bytesToDataUrl,
   parseDeviceStateFromDumpsys,
   parsePngSize,
 } from './deviceParsers'
 import { retryDeviceOperation, delay } from './deviceRetry'
+import { DEFAULT_DEVICE_TIMING } from './deviceTiming'
 import {
   DeviceBackendError,
   type DeviceCommandStep,
@@ -29,8 +27,30 @@ import {
   type ExecuteActionOptions,
   type InstalledApp,
 } from './deviceTypes'
+import { buildInputCommandSequence } from './inputCommands'
 import { parseInstalledAppsFromPackageOutput } from './installedApps'
+import { assertSensitiveActionConfirmed } from './sensitiveActions'
 import { preprocessScreenshotForModel } from './screenshotPreprocess'
+import {
+  buildDeleteScreenBrightnessCommand,
+  buildDeleteScreenBrightnessModeCommand,
+  buildReadScreenBrightnessCommand,
+  buildReadScreenBrightnessModeCommand,
+  buildSetScreenBrightnessCommand,
+  buildSetScreenBrightnessModeCommand,
+  normalizeScreenSetting,
+  SCREEN_BRIGHTNESS_BLACKOUT_VALUE,
+  SCREEN_BRIGHTNESS_MODE_MANUAL_VALUE,
+  type ScreenBlackoutRestoreSettings,
+} from './screenBlackoutCommands'
+import {
+  buildDisableStayAwakeCommand,
+  buildEnableStayAwakeCommand,
+  buildReadStayAwakeSettingCommand,
+  buildRestoreStayAwakeSettingCommand,
+  buildWakeDeviceCommand,
+  normalizeStayAwakeSetting,
+} from './stayAwakeCommands'
 
 const ADB_KEYBOARD_BROADCAST_ERROR = [
   'ADB Keyboard or AutoGLM Keyboard was detected but did not accept the text or clear broadcast.',
@@ -50,6 +70,9 @@ export class WebAdbDeviceBackend implements DeviceBackend {
   #preferAdbKeyboard = false
   #timing: DeviceTimingConfig = DEFAULT_DEVICE_TIMING
   #installedApps: InstalledApp[] | null = null
+  #stayAwakeRestoreValue: string | null = null
+  #stayAwakeEnabled = false
+  #screenBlackoutRestoreSettings: ScreenBlackoutRestoreSettings | null = null
 
   get isConnected() {
     return this.#adb !== null
@@ -83,11 +106,18 @@ export class WebAdbDeviceBackend implements DeviceBackend {
       name: device.name || transport.banner.model || 'Android device',
     }
 
+    await this.#enableStayAwakeDuringConnection().catch(() => undefined)
+
     return this.#deviceInfo
   }
 
   async disconnect() {
-    await this.#adb?.close()
+    const adb = this.#adb
+    if (adb) {
+      await this.#restoreScreenBlackout(adb).catch(() => undefined)
+      await this.#restoreStayAwakeAfterConnection(adb).catch(() => undefined)
+    }
+    await adb?.close()
     this.#adb = null
     this.#deviceInfo = null
   }
@@ -141,7 +171,9 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     const bytes = await adb.subprocess.noneProtocol.spawnWait(['screencap', '-p'])
     const screen = parsePngSize(bytes)
     const dataUrl = bytesToDataUrl(bytes)
-    let modelScreenshot: { modelDataUrl: string; modelScreen: typeof screen } | undefined
+    let modelScreenshot:
+      | { modelDataUrl: string; modelScreen: typeof screen; modelGridDivisions?: number }
+      | undefined
 
     try {
       modelScreenshot = await preprocessScreenshotForModel({ dataUrl, screen })
@@ -150,10 +182,10 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     }
 
     return {
-      bytes,
-      dataUrl,
+      dataUrl: modelScreenshot.modelDataUrl,
       screen,
-      ...modelScreenshot,
+      modelScreen: modelScreenshot.modelScreen,
+      modelGridDivisions: modelScreenshot.modelGridDivisions,
     }
   }
 
@@ -173,6 +205,38 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     const adb = this.#requireAdb()
     await delay(150)
     await adb.subprocess.noneProtocol.spawnWaitText(['echo', 'webdroid-device-read-recovery'])
+  }
+
+  async #enableStayAwakeDuringConnection() {
+    const adb = this.#requireAdb()
+    const originalValue = await adb.subprocess.noneProtocol
+      .spawnWaitText(buildReadStayAwakeSettingCommand())
+      .then(normalizeStayAwakeSetting)
+      .catch(() => null)
+    await adb.subprocess.noneProtocol.spawnWaitText(buildEnableStayAwakeCommand())
+    this.#stayAwakeRestoreValue = originalValue
+    this.#stayAwakeEnabled = true
+    await adb.subprocess.noneProtocol.spawnWait(buildWakeDeviceCommand()).catch(() => undefined)
+  }
+
+  async #restoreStayAwakeAfterConnection(adb: Adb) {
+    if (!this.#stayAwakeEnabled) {
+      return
+    }
+
+    try {
+      if (this.#stayAwakeRestoreValue) {
+        await adb.subprocess.noneProtocol.spawnWaitText(
+          buildRestoreStayAwakeSettingCommand(this.#stayAwakeRestoreValue),
+        )
+        return
+      }
+
+      await adb.subprocess.noneProtocol.spawnWaitText(buildDisableStayAwakeCommand())
+    } finally {
+      this.#stayAwakeRestoreValue = null
+      this.#stayAwakeEnabled = false
+    }
   }
 
   async execute(action: AgentAction, options?: ExecuteActionOptions): Promise<string> {
@@ -205,7 +269,8 @@ export class WebAdbDeviceBackend implements DeviceBackend {
       action.action === 'input_text' &&
       (action.clear || this.#preferAdbKeyboard || !isAndroidInputTextSafe(action.text))
     ) {
-      return await this.#inputTextWithAdbKeyboard(action.text, { clear: action.clear })
+      const executed = await this.#inputTextWithAdbKeyboard(action.text, { clear: action.clear })
+      return await this.#withActionSettle(executed)
     }
 
     await assertSensitiveActionConfirmed(action, options)
@@ -223,7 +288,7 @@ export class WebAdbDeviceBackend implements DeviceBackend {
       executed.push(isWaitStep(step) ? `wait ${step.waitMs}ms` : step.join(' '))
     }
 
-    return executed.join('\n')
+    return await this.#withActionSettle(executed.join('\n'))
   }
 
   async enableAdbKeyboard(): Promise<string> {
@@ -269,6 +334,42 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     }
   }
 
+  async startScreenBlackout(): Promise<string> {
+    const adb = this.#requireAdb()
+    if (this.#screenBlackoutRestoreSettings) {
+      return 'Screen blackout is already active.'
+    }
+
+    const [brightness, brightnessMode] = await Promise.all([
+      adb.subprocess.noneProtocol
+        .spawnWaitText(buildReadScreenBrightnessCommand())
+        .then(normalizeScreenSetting)
+        .catch(() => null),
+      adb.subprocess.noneProtocol
+        .spawnWaitText(buildReadScreenBrightnessModeCommand())
+        .then(normalizeScreenSetting)
+        .catch(() => null),
+    ])
+
+    this.#screenBlackoutRestoreSettings = { brightness, brightnessMode }
+    try {
+      await adb.subprocess.noneProtocol.spawnWaitText(
+        buildSetScreenBrightnessModeCommand(SCREEN_BRIGHTNESS_MODE_MANUAL_VALUE),
+      )
+      await adb.subprocess.noneProtocol.spawnWaitText(
+        buildSetScreenBrightnessCommand(SCREEN_BRIGHTNESS_BLACKOUT_VALUE),
+      )
+      return 'Screen brightness set to 0 for automatic control.'
+    } catch (caught) {
+      await this.#restoreScreenBlackout(adb).catch(() => undefined)
+      throw caught
+    }
+  }
+
+  async stopScreenBlackout(): Promise<string> {
+    return await this.#restoreScreenBlackout(this.#requireAdb())
+  }
+
   setPreferAdbKeyboard(value: boolean) {
     this.#preferAdbKeyboard = value
   }
@@ -298,6 +399,44 @@ export class WebAdbDeviceBackend implements DeviceBackend {
     }
 
     await this.#requireAdb().subprocess.noneProtocol.spawnWait(step)
+  }
+
+  async #restoreScreenBlackout(adb: Adb) {
+    const restoreSettings = this.#screenBlackoutRestoreSettings
+    if (!restoreSettings) {
+      return 'Screen blackout is not active.'
+    }
+
+    try {
+      if (restoreSettings.brightness) {
+        await adb.subprocess.noneProtocol.spawnWaitText(
+          buildSetScreenBrightnessCommand(restoreSettings.brightness),
+        )
+      } else {
+        await adb.subprocess.noneProtocol.spawnWaitText(buildDeleteScreenBrightnessCommand())
+      }
+
+      if (restoreSettings.brightnessMode) {
+        await adb.subprocess.noneProtocol.spawnWaitText(
+          buildSetScreenBrightnessModeCommand(restoreSettings.brightnessMode),
+        )
+      } else {
+        await adb.subprocess.noneProtocol.spawnWaitText(buildDeleteScreenBrightnessModeCommand())
+      }
+
+      return 'Screen brightness restored.'
+    } finally {
+      this.#screenBlackoutRestoreSettings = null
+    }
+  }
+
+  async #withActionSettle(result: string) {
+    if (this.#timing.actionSettleMs <= 0) {
+      return result
+    }
+
+    await delay(this.#timing.actionSettleMs)
+    return [result, `wait ${this.#timing.actionSettleMs}ms`].filter(Boolean).join('\n')
   }
 
   async #inputTextWithAdbKeyboard(text: string, options: { clear?: boolean } = {}) {

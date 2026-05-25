@@ -1,5 +1,6 @@
 import type { AgentSettingsSnapshot, AgentThread } from './agentThread'
 import type { ModelConfig } from './openAiTypes'
+import { compactScreenshotForMemory } from './screenshot'
 
 const DATABASE_NAME = 'webdroid-agent-threads'
 const DATABASE_VERSION = 1
@@ -21,6 +22,7 @@ export type AgentThreadStore = {
   loadLatest(): Promise<AgentThread | null>
   list(): Promise<AgentThreadSummary[]>
   delete(threadId: string): Promise<void>
+  clear(): Promise<void>
 }
 
 export type CreateSettingsSnapshotInput = Omit<AgentSettingsSnapshot, 'modelConfig'> & {
@@ -69,6 +71,9 @@ export function createMemoryThreadStore(initialThreads: readonly AgentThread[] =
     async delete(threadId) {
       threads.delete(threadId)
     },
+    async clear() {
+      threads.clear()
+    },
   }
 }
 
@@ -97,23 +102,23 @@ export function createIndexedDbThreadStore(
           store.get(threadId),
         ),
       )
-      return result ? cloneThread(result) : null
+      return result ? compactThreadForMemory(result) : null
     },
     async loadLatest() {
       const result = await withDatabase(indexedDb, databaseName, loadLatestThread)
-      return result ? cloneThread(result) : null
+      return result ? compactThreadForMemory(result) : null
     },
     async list() {
-      const result = await withDatabase(indexedDb, databaseName, (database) =>
-        runTransaction<AgentThread[]>(database, 'readonly', (store) =>
-          store.getAll(),
-        ),
-      )
-      return sortedThreads(result).map(toThreadSummary)
+      return withDatabase(indexedDb, databaseName, listThreadSummaries)
     },
     async delete(threadId) {
       await withDatabase(indexedDb, databaseName, (database) =>
         runTransaction(database, 'readwrite', (store) => store.delete(threadId)),
+      )
+    },
+    async clear() {
+      await withDatabase(indexedDb, databaseName, (database) =>
+        runTransaction(database, 'readwrite', (store) => store.clear()),
       )
     },
   }
@@ -167,6 +172,31 @@ function runTransaction<Result = undefined>(
   })
 }
 
+function listThreadSummaries(database: IDBDatabase) {
+  return new Promise<AgentThreadSummary[]>((resolve, reject) => {
+    const transaction = database.transaction(THREAD_STORE, 'readonly')
+    const store = transaction.objectStore(THREAD_STORE)
+    const index = store.indexNames.contains(UPDATED_AT_INDEX)
+      ? store.index(UPDATED_AT_INDEX)
+      : null
+    const source = index ?? store
+    const summaries: AgentThreadSummary[] = []
+    const request = source.openCursor(null, index ? 'prev' : 'next')
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve(index ? summaries : summaries.sort((left, right) => right.updatedAt - left.updatedAt))
+        return
+      }
+
+      summaries.push(toThreadSummary(cursor.value as AgentThread))
+      cursor.continue()
+    }
+    request.onerror = () => reject(request.error ?? new Error('Failed to list thread summaries.'))
+  })
+}
+
 function loadLatestThread(database: IDBDatabase) {
   return new Promise<AgentThread | undefined>((resolve, reject) => {
     const transaction = database.transaction(THREAD_STORE, 'readonly')
@@ -204,8 +234,42 @@ function toThreadSummary(thread: AgentThread): AgentThreadSummary {
 }
 
 function cloneThread(thread: AgentThread): AgentThread {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(thread)
+  const clone =
+    typeof structuredClone === 'function'
+      ? structuredClone(thread)
+      : (JSON.parse(JSON.stringify(thread)) as AgentThread)
+
+  return compactThreadForMemory(clone)
+}
+
+function compactThreadForMemory(thread: AgentThread): AgentThread {
+  if (thread.lastScreenshot) {
+    thread.lastScreenshot = compactScreenshotForMemory(thread.lastScreenshot)
   }
-  return JSON.parse(JSON.stringify(thread)) as AgentThread
+  if (thread.deviceSnapshot?.screenshot) {
+    thread.deviceSnapshot = {
+      ...thread.deviceSnapshot,
+      screenshot: compactScreenshotForMemory(thread.deviceSnapshot.screenshot),
+    }
+  }
+
+  for (const turn of thread.turns) {
+    if (turn.deviceSnapshot.screenshot) {
+      turn.deviceSnapshot = {
+        currentApp: turn.deviceSnapshot.currentApp,
+        deviceState: turn.deviceSnapshot.deviceState,
+      }
+    }
+    if (turn.compacted) {
+      turn.promptContext = ''
+    }
+  }
+
+  for (const event of thread.events) {
+    if (event.type === 'device_snapshot') {
+      delete event.screenshot
+    }
+  }
+
+  return thread
 }

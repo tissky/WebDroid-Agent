@@ -4,7 +4,13 @@ export type AppCard = {
   content: string
 }
 
-export const APP_CARDS: Record<string, AppCard> = {
+export type AppCardMap = Record<string, AppCard>
+
+export type AppCardStorage = Pick<Storage, 'getItem' | 'setItem'>
+
+const APP_CARDS_KEY = 'webdroid-agent-app-cards'
+
+export const BUILT_IN_APP_CARDS: AppCardMap = {
   'com.android.chrome': {
     packageName: 'com.android.chrome',
     title: 'Chrome',
@@ -40,9 +46,103 @@ export const APP_CARDS: Record<string, AppCard> = {
   },
 }
 
-export function resolveAppCard(packageName?: string) {
+export function createDefaultAppCards(): AppCardMap {
+  return cloneAppCards(BUILT_IN_APP_CARDS)
+}
+
+export function loadAppCards(storage: AppCardStorage = localStorage) {
+  const raw = storage.getItem(APP_CARDS_KEY)
+  if (!raw) {
+    return createDefaultAppCards()
+  }
+
+  try {
+    return normalizeAppCards(JSON.parse(raw))
+  } catch {
+    return createDefaultAppCards()
+  }
+}
+
+export function saveAppCards(appCards: AppCardMap, storage: AppCardStorage = localStorage) {
+  storage.setItem(APP_CARDS_KEY, serializeAppCards(appCards))
+}
+
+export function serializeAppCards(appCards: AppCardMap) {
+  return JSON.stringify(toEditableAppCardJson(appCards), null, 2)
+}
+
+export function parseAppCardsJson(raw: string) {
+  return normalizeAppCards(JSON.parse(raw))
+}
+
+export function resolveAppCard(appCards: AppCardMap, packageName?: string) {
   if (!packageName) {
     return undefined
   }
-  return APP_CARDS[packageName]?.content
+  return appCards[packageName]?.content
+}
+
+function normalizeAppCards(value: unknown): AppCardMap {
+  if (!isRecord(value)) {
+    return createDefaultAppCards()
+  }
+
+  const appCards: AppCardMap = {}
+  for (const [packageName, entry] of Object.entries(value)) {
+    if (!isPackageName(packageName)) {
+      continue
+    }
+    const normalized = normalizeAppCardEntry(packageName, entry)
+    if (normalized) {
+      appCards[packageName] = normalized
+    }
+  }
+
+  return Object.keys(appCards).length > 0 ? appCards : createDefaultAppCards()
+}
+
+function normalizeAppCardEntry(packageName: string, value: unknown): AppCard | null {
+  if (typeof value === 'string') {
+    const content = value.trim()
+    return content ? { packageName, title: packageName, content } : null
+  }
+
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const title = typeof value.title === 'string' && value.title.trim() ? value.title.trim() : packageName
+  const content = typeof value.content === 'string' ? value.content.trim() : ''
+  return content ? { packageName, title, content } : null
+}
+
+function toEditableAppCardJson(appCards: AppCardMap) {
+  return Object.fromEntries(
+    Object.values(appCards)
+      .sort((left, right) => left.packageName.localeCompare(right.packageName))
+      .map((appCard) => [
+        appCard.packageName,
+        {
+          title: appCard.title,
+          content: appCard.content,
+        },
+      ]),
+  )
+}
+
+function cloneAppCards(appCards: AppCardMap): AppCardMap {
+  return Object.fromEntries(
+    Object.entries(appCards).map(([packageName, appCard]) => [
+      packageName,
+      { ...appCard },
+    ]),
+  )
+}
+
+function isPackageName(value: string) {
+  return /^[A-Za-z0-9_.-]+$/.test(value) && value.includes('.')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

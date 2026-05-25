@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildChatCompletionPayload, buildFinalResponsePayload } from './openAiPayload'
+import {
+  MAX_PROMPT_CONVERSATION_MESSAGES,
+  buildChatCompletionPayload,
+  buildFinalResponsePayload,
+} from './openAiPayload'
 
 describe('buildChatCompletionPayload', () => {
   it('builds an OpenAI-compatible multimodal request', () => {
@@ -38,10 +42,58 @@ describe('buildChatCompletionPayload', () => {
 
     expect(payload.messages[0].content).toContain('Return only one JSON object')
     expect(payload.messages[0].content).toContain('"clear":boolean')
+    expect(payload.messages[0].content).toContain('"action":"wait","duration":number')
+    expect(payload.messages[0].content).toContain('Mobilerun-compatible aliases')
     expect(payload.messages[0].content).not.toContain('"action":"interact"')
     expect(payload.messages[0].content).not.toContain('"action":"call_api"')
     expect(payload.messages[0].content).not.toContain('Open-AutoGLM')
     expect(payload.messages[0].content).not.toContain('do(action=')
+  })
+
+  it('can ask for Open-AutoGLM function actions explicitly', () => {
+    const payload = buildChatCompletionPayload({
+      actionProtocol: 'open_autoglm_function',
+      model: 'agent-model',
+      task: 'Open settings',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+    })
+
+    expect(payload.response_format).toBeUndefined()
+    expect(payload.messages[0].content).toContain('<think>{short reason}</think>')
+    expect(payload.messages[0].content).toContain('do(action="Tap"')
+    expect(payload.messages[0].content).toContain('type_secret(secret_id=')
+    expect(payload.messages[0].content).toContain('custom_tool(tool=')
+    expect(payload.messages[0].content).toContain('0-1000 relative coordinate space')
+  })
+
+  it('can ask for mobilerun XML tool calls explicitly', () => {
+    const payload = buildChatCompletionPayload({
+      actionProtocol: 'mobilerun_xml',
+      model: 'agent-model',
+      task: 'Open settings',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+    })
+
+    expect(payload.response_format).toBeUndefined()
+    expect(payload.messages[0].content).toContain('<function_calls>')
+    expect(payload.messages[0].content).toContain('type_secret(secret_id,clear)')
+    expect(payload.messages[0].content).toContain('custom_tool(tool,input)')
+  })
+
+  it('instructs the model not to request takeover in unrestricted mode', () => {
+    const payload = buildChatCompletionPayload({
+      model: 'agent-model',
+      task: 'Open settings',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+      unrestrictedMode: true,
+    })
+
+    expect(payload.messages[0].content).toContain('Unrestricted mode is enabled')
+    expect(payload.messages[0].content).toContain('do not return take_over')
+    expect(payload.messages[0].content).toContain('continue autonomously')
   })
 
   it('describes screenshot coordinates and device mapping in the user context', () => {
@@ -168,6 +220,31 @@ describe('buildChatCompletionPayload', () => {
     expect(userMessage.content[0].text).toContain('chrome: com.android.chrome')
   })
 
+  it('includes prompt-safe custom tools and secret ids in the user context', () => {
+    const payload = buildChatCompletionPayload({
+      model: 'agent-model',
+      task: 'Log in',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+      customTools: [{ name: 'lookup_order', description: 'Lookup an order fixture.' }],
+      secrets: [{ id: 'gmail_password', label: 'Gmail password' }],
+    })
+
+    const userMessage = payload.messages[1]
+    if (
+      userMessage.role !== 'user' ||
+      !Array.isArray(userMessage.content) ||
+      userMessage.content[0].type !== 'text'
+    ) {
+      throw new Error('Expected first user content item to be text.')
+    }
+
+    expect(userMessage.content[0].text).toContain('<available_custom_tools>')
+    expect(userMessage.content[0].text).toContain('lookup_order: Lookup an order fixture.')
+    expect(userMessage.content[0].text).toContain('<available_secrets>')
+    expect(userMessage.content[0].text).toContain('gmail_password: Gmail password')
+  })
+
   it('includes every installed app in the user context', () => {
     const payload = buildChatCompletionPayload({
       model: 'agent-model',
@@ -243,6 +320,36 @@ describe('buildChatCompletionPayload', () => {
       type: 'image_url',
       image_url: { url: 'data:image/png;base64,abc123' },
     })
+  })
+
+  it('trims long conversation history while keeping the original user task', () => {
+    const conversation = [
+      { id: 'u1', role: 'user' as const, content: 'Open Settings.' },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        id: `o${index}`,
+        role: 'observation' as const,
+        content: `Executed step ${index}`,
+      })),
+    ]
+
+    const payload = buildChatCompletionPayload({
+      model: 'agent-model',
+      task: 'Open settings',
+      conversation,
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 1080, height: 2400 },
+      promptContext: 'Task: Open settings\nPrevious steps: latest compact summary',
+    })
+
+    expect(payload.messages).toHaveLength(MAX_PROMPT_CONVERSATION_MESSAGES + 2)
+    expect(payload.messages[1]).toEqual({
+      role: 'user',
+      content: 'Open Settings.',
+    })
+    expect(payload.messages.some((message) => JSON.stringify(message).includes('Executed step 0'))).toBe(
+      false,
+    )
+    expect(JSON.stringify(payload.messages.at(-1))).toContain('latest compact summary')
   })
 
   it('enables streaming when requested by the model config', () => {

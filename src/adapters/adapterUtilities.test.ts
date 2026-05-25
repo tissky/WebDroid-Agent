@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_ACTION_SETTLE_DELAY_MS,
   DEFAULT_DOUBLE_TAP_INTERVAL_MS,
   DEFAULT_DEVICE_TIMING,
+  buildDeleteScreenBrightnessCommand,
+  buildDeleteScreenBrightnessModeCommand,
+  buildDisableStayAwakeCommand,
+  buildEnableStayAwakeCommand,
   buildInputCommand,
   buildInputCommandSequence,
+  buildReadScreenBrightnessCommand,
+  buildReadScreenBrightnessModeCommand,
+  buildReadStayAwakeSettingCommand,
+  buildRestoreStayAwakeSettingCommand,
+  buildSetScreenBrightnessCommand,
+  buildSetScreenBrightnessModeCommand,
+  buildWakeDeviceCommand,
   encodeAdbKeyboardText,
   getSensitiveActionMessage,
   escapeInputText,
@@ -12,6 +22,8 @@ import {
   isAndroidInputTextSafe,
   isAdbKeyboardInstalled,
   keyToAndroidKeyCode,
+  normalizeScreenSetting,
+  normalizeStayAwakeSetting,
 } from './deviceCommands'
 import {
   parseCurrentAppFromDumpsys,
@@ -76,15 +88,89 @@ describe('buildInputCommand', () => {
   })
 })
 
+describe('stay-awake commands', () => {
+  it('builds ADB commands for keeping the device awake while connected', () => {
+    expect(buildReadStayAwakeSettingCommand()).toEqual([
+      'settings',
+      'get',
+      'global',
+      'stay_on_while_plugged_in',
+    ])
+    expect(buildEnableStayAwakeCommand()).toEqual(['svc', 'power', 'stayon', 'usb'])
+    expect(buildDisableStayAwakeCommand()).toEqual(['svc', 'power', 'stayon', 'false'])
+    expect(buildRestoreStayAwakeSettingCommand('3')).toEqual([
+      'settings',
+      'put',
+      'global',
+      'stay_on_while_plugged_in',
+      '3',
+    ])
+    expect(buildWakeDeviceCommand()).toEqual(['input', 'keyevent', 'KEYCODE_WAKEUP'])
+  })
+
+  it('normalizes persisted stay-awake setting values', () => {
+    expect(normalizeStayAwakeSetting('2\n')).toBe('2')
+    expect(normalizeStayAwakeSetting('null')).toBeNull()
+    expect(normalizeStayAwakeSetting('')).toBeNull()
+  })
+})
+
+describe('screen blackout commands', () => {
+  it('builds ADB commands for dimming and restoring the screen during auto control', () => {
+    expect(buildReadScreenBrightnessCommand()).toEqual([
+      'settings',
+      'get',
+      'system',
+      'screen_brightness',
+    ])
+    expect(buildReadScreenBrightnessModeCommand()).toEqual([
+      'settings',
+      'get',
+      'system',
+      'screen_brightness_mode',
+    ])
+    expect(buildSetScreenBrightnessModeCommand('0')).toEqual([
+      'settings',
+      'put',
+      'system',
+      'screen_brightness_mode',
+      '0',
+    ])
+    expect(buildSetScreenBrightnessCommand('0')).toEqual([
+      'settings',
+      'put',
+      'system',
+      'screen_brightness',
+      '0',
+    ])
+    expect(buildDeleteScreenBrightnessCommand()).toEqual([
+      'settings',
+      'delete',
+      'system',
+      'screen_brightness',
+    ])
+    expect(buildDeleteScreenBrightnessModeCommand()).toEqual([
+      'settings',
+      'delete',
+      'system',
+      'screen_brightness_mode',
+    ])
+  })
+
+  it('normalizes screen setting values from ADB output', () => {
+    expect(normalizeScreenSetting('120\n')).toBe('120')
+    expect(normalizeScreenSetting('null')).toBeNull()
+    expect(normalizeScreenSetting('')).toBeNull()
+  })
+})
+
 describe('buildInputCommandSequence', () => {
   it('builds launch commands from package names and app labels', () => {
     expect(buildInputCommandSequence({ action: 'launch', app: 'Settings' })).toEqual([
       ['monkey', '-p', 'com.android.settings', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
     expect(buildInputCommandSequence({ action: 'launch', app: 'com.example.app' })).toEqual([
       ['monkey', '-p', 'com.example.app', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
@@ -95,7 +181,6 @@ describe('buildInputCommandSequence', () => {
       ]),
     ).toEqual([
       ['monkey', '-p', 'com.example.notes', '-c', 'android.intent.category.LAUNCHER', '1'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
@@ -104,32 +189,27 @@ describe('buildInputCommandSequence', () => {
       buildInputCommandSequence({ action: 'long_press', x: 10, y: 20, durationMs: 900 }),
     ).toEqual([
       ['input', 'swipe', '10', '20', '10', '20', '900'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(buildInputCommandSequence({ action: 'double_tap', x: 10, y: 20 })).toEqual([
       ['input', 'tap', '10', '20'],
       { waitMs: DEFAULT_DOUBLE_TAP_INTERVAL_MS },
       ['input', 'tap', '10', '20'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
   it('builds back and home commands', () => {
     expect(buildInputCommandSequence({ action: 'back' })).toEqual([
       ['input', 'keyevent', 'KEYCODE_BACK'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
     expect(buildInputCommandSequence({ action: 'home' })).toEqual([
       ['input', 'keyevent', 'KEYCODE_HOME'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
-  it('waits for the UI to settle after primitive touch and text actions', () => {
+  it('builds primitive touch and text command sequences without global settle waits', () => {
     expect(buildInputCommandSequence({ action: 'tap', x: 12, y: 34 })).toEqual([
       ['input', 'tap', '12', '34'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(
@@ -143,12 +223,10 @@ describe('buildInputCommandSequence', () => {
       }),
     ).toEqual([
       ['input', 'swipe', '1', '2', '3', '4', '500'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(buildInputCommandSequence({ action: 'input_text', text: 'hello world' })).toEqual([
       ['input', 'text', 'hello%sworld'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
 
     expect(
@@ -159,11 +237,10 @@ describe('buildInputCommandSequence', () => {
       ['input', 'keyevent', 'KEYCODE_DEL'],
       { waitMs: DEFAULT_DEVICE_TIMING.keyboardStepMs },
       ['input', 'text', 'hello%sworld'],
-      { waitMs: DEFAULT_ACTION_SETTLE_DELAY_MS },
     ])
   })
 
-  it('uses custom settle and double-tap timing when provided', () => {
+  it('uses custom double-tap timing when provided', () => {
     expect(
       buildInputCommandSequence(
         { action: 'double_tap', x: 10, y: 20 },
@@ -177,7 +254,6 @@ describe('buildInputCommandSequence', () => {
       ['input', 'tap', '10', '20'],
       { waitMs: 80 },
       ['input', 'tap', '10', '20'],
-      { waitMs: 250 },
     ])
   })
 })

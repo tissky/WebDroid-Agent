@@ -57,6 +57,56 @@ describe('parseModelAction', () => {
     })
   })
 
+  it('parses mobilerun function style actions', () => {
+    expect(parseModelAction('<answer>click_at(x=100, y=200)</answer>', screen)).toEqual({
+      action: 'tap',
+      x: 100,
+      y: 200,
+    })
+    expect(parseModelAction('complete(success=False, message="没有找到目标")', screen)).toEqual({
+      action: 'done',
+      summary: 'Failed: 没有找到目标',
+    })
+  })
+
+  it('parses mobilerun XML tool calls', () => {
+    expect(
+      parseModelAction(
+        [
+          '<function_calls>',
+          '<invoke name="click_at">',
+          '<parameter name="x">100</parameter>',
+          '<parameter name="y">200</parameter>',
+          '</invoke>',
+          '</function_calls>',
+        ].join(''),
+        screen,
+      ),
+    ).toEqual({
+      action: 'tap',
+      x: 100,
+      y: 200,
+    })
+
+    expect(
+      parseModelAction(
+        [
+          '<function_calls>',
+          '<invoke name="custom_tool">',
+          '<parameter name="tool">lookup_order</parameter>',
+          '<parameter name="input">{"id":"123"}</parameter>',
+          '</invoke>',
+          '</function_calls>',
+        ].join(''),
+        screen,
+      ),
+    ).toEqual({
+      action: 'custom_tool',
+      tool: 'lookup_order',
+      input: { id: '123' },
+    })
+  })
+
   it('normalizes Open-AutoGLM Interact and Call_API actions to takeover', () => {
     expect(parseModelAction('do(action="Interact", message="请选择联系人")', screen)).toEqual({
       action: 'take_over',
@@ -85,6 +135,14 @@ describe('validateAction', () => {
   })
 
   it('normalizes wait durations to a safe range', () => {
+    expect(validateAction({ action: 'wait' }, screen)).toEqual({
+      action: 'wait',
+      ms: 1000,
+    })
+    expect(validateAction({ action: 'wait', duration: 1.5 }, screen)).toEqual({
+      action: 'wait',
+      ms: 1500,
+    })
     expect(validateAction({ action: 'wait', ms: 99 }, screen)).toEqual({
       action: 'wait',
       ms: 100,
@@ -187,6 +245,87 @@ describe('validateAction', () => {
       toX: 540,
       toY: 600,
       durationMs: 400,
+    })
+  })
+
+  it('accepts mobilerun action aliases with screenshot pixel coordinates', () => {
+    expect(validateAction({ action: 'click_at', x: 100, y: 200 }, screen)).toEqual({
+      action: 'tap',
+      x: 100,
+      y: 200,
+    })
+    expect(
+      validateAction({ action: 'click_area', x1: 100, y1: 200, x2: 300, y2: 400 }, screen),
+    ).toEqual({
+      action: 'tap',
+      x: 200,
+      y: 300,
+    })
+    expect(validateAction({ action: 'tap', coordinate: [100, 200] }, screen)).toEqual({
+      action: 'tap',
+      x: 100,
+      y: 200,
+    })
+    expect(validateAction({ action: 'long_press_at', x: 100, y: 200 }, screen)).toEqual({
+      action: 'long_press',
+      x: 100,
+      y: 200,
+      durationMs: 1000,
+    })
+    expect(
+      validateAction(
+        { action: 'swipe', coordinate: [100, 200], coordinate2: [300, 400], duration: 1.5 },
+        screen,
+      ),
+    ).toEqual({
+      action: 'swipe',
+      fromX: 100,
+      fromY: 200,
+      toX: 300,
+      toY: 400,
+      durationMs: 1500,
+    })
+    expect(
+      validateAction({ action: 'swipe', coordinate: [100, 200], coordinate2: [300, 400] }, screen),
+    ).toEqual({
+      action: 'swipe',
+      fromX: 100,
+      fromY: 200,
+      toX: 300,
+      toY: 400,
+      durationMs: 1000,
+    })
+    expect(validateAction({ action: 'type_text', text: 'hello', clear: true }, screen)).toEqual({
+      action: 'input_text',
+      text: 'hello',
+      clear: true,
+    })
+    expect(validateAction({ action: 'type_secret', secret_id: 'gmail', clear: true }, screen)).toEqual({
+      action: 'type_secret',
+      secretId: 'gmail',
+      clear: true,
+    })
+    expect(validateAction({ action: 'system_button', button: 'recent apps' }, screen)).toEqual({
+      action: 'key',
+      key: 'APP_SWITCH',
+    })
+    expect(validateAction({ action: 'open_app', text: 'Gmail' }, screen)).toEqual({
+      action: 'launch',
+      app: 'Gmail',
+    })
+    expect(validateAction({ action: 'remember', information: '账号页已打开' }, screen)).toEqual({
+      action: 'note',
+      message: '账号页已打开',
+    })
+    expect(validateAction({ action: 'complete', success: true, message: '已完成' }, screen)).toEqual(
+      {
+        action: 'done',
+        summary: '已完成',
+      },
+    )
+    expect(validateAction({ action: 'custom_tool', tool: 'lookup_order' }, screen)).toEqual({
+      action: 'custom_tool',
+      tool: 'lookup_order',
     })
   })
 })

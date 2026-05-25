@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/webdroid-agent-logo.png" alt="WebDroid Agent logo" width="96" />
+  <img src="./public/webdroid-agent-logo-128.png" alt="WebDroid Agent logo" width="96" />
 </p>
 
 # WebDroid Agent
@@ -23,14 +23,17 @@ Docker: browser fetch -> same-origin local proxy -> OpenAI-compatible /v1/chat/c
 - Run entirely on the frontend for static deployments such as Cloudflare Pages.
 - Use the built-in same-origin local API proxy in Docker deployments to avoid model-provider browser CORS limits.
 - Connect to an Android device with USB debugging enabled through WebADB in the browser.
-- Capture the phone screen and send the screenshot, current app, device state, and step history to the model.
-- Use the canonical JSON prompt/action format, while keeping parser compatibility for Open-AutoGLM-style action outputs.
+- Capture the phone screen and send the screenshot, current app, device state, full installed-app list, and step history to the model.
+- Explicitly choose the `webdroid_json`, `open_autoglm_function`, or `mobilerun_xml` action protocol.
+- Use the canonical JSON prompt/action format, while keeping parser compatibility for Open-AutoGLM-style and mobilerun-style action outputs.
 - Parse, normalize, and validate the next action returned by the model.
-- Execute app launches, taps, swipes, text input, Back, Home, long press, double tap, and wait actions through ADB.
+- Execute app launches, taps, swipes, text input, Back, Home, long press, double tap, and wait actions through ADB, including model-controlled wait duration.
+- Support clear-before-type input, fixed post-action settle delay, transient model API and empty-model-response retries, and limited automatic recovery from non-sensitive execution failures.
+- Support editable App Cards, local Custom Tools, and safe Secret typing that exposes only IDs/labels to the model.
 - Support continuous auto-execution as well as step-by-step human confirmation.
 - Send chat messages to run automatically, with one-step planning kept in advanced debug controls.
-- Support sensitive-action confirmation, max-step limits, stop controls, and advanced reset/run-log export.
-- Persist page settings in the local browser `localStorage`.
+- Support sensitive-action confirmation, unrestricted mode, max-step limits, stop controls, and advanced reset/run-log export.
+- Persist page settings in the local browser `localStorage`, and persist agent thread/turn history in IndexedDB.
 
 ## Good Fits
 
@@ -38,7 +41,7 @@ This project is a good fit for:
 
 - Testing whether an OpenAI-compatible vision model can understand real Android UI.
 - Debugging phone-agent action protocols, coordinate mapping, and auto-execution loops.
-- Exploring compatibility between Open-AutoGLM-style actions and more general JSON actions.
+- Exploring compatibility between Open-AutoGLM-style, mobilerun-style, and more general JSON actions.
 - Building Android UI automation prototypes in a local and controlled environment.
 
 It is not a good fit for:
@@ -54,8 +57,9 @@ It is not a good fit for:
 3. Fill in the OpenAI-compatible `Base URL`, `API Key`, and `Model`.
 4. Type a natural-language instruction in the chat, such as "Open Settings and go to Wi-Fi".
 5. Sending the message captures the screen and asks the model for one action.
-6. The frontend parses and validates the action, then executes safe actions automatically while sensitive actions still ask for confirmation.
-7. The loop continues until the model returns `done`, requests `take_over`, the max step count is reached, or the user stops execution.
+6. The frontend parses and validates the action, then executes safe actions automatically while sensitive actions ask for confirmation by default.
+7. If a non-sensitive action execution fails, the failure feedback is added to the next model context and the model gets a small number of automatic recovery attempts.
+8. The loop continues until the model returns `done`, requests `take_over`, the max step count is reached, or the user stops execution; unrestricted mode does not stop on `take_over`.
 
 ## Requirements
 
@@ -92,11 +96,16 @@ The app stores these values in the current browser's `localStorage`:
 - `Base URL`: OpenAI-compatible API endpoint, default `https://api.openai.com/v1`.
 - `API Key`: model API key.
 - `Model`: model name, default `gpt-5.5`.
+- `Action protocol`: model action protocol, one of `webdroid_json`, `open_autoglm_function`, or `mobilerun_xml`.
 - `Max steps`: maximum auto-execution steps, default `50`.
 - `Confirm sensitive actions`: whether sensitive taps require human confirmation, default on.
+- `Unrestricted mode`: bypass local safety policy and sensitive confirmations, and prompt the model not to request human takeover.
 - `Stream responses`: whether to use streaming responses, default off.
 - `Use ADB Keyboard for text`: whether to prefer ADB Keyboard input, default off.
 - `Action settle`, `Double tap interval`, `Keyboard step`: timing controls for action execution and text input.
+- `App Cards`: package-name keyed editable app context cards; Chrome, Gmail, and Settings are built in by default.
+- `Secrets`: local secret records; the model sees only `id` and `label`, and `type_secret` resolves the value locally at execution time.
+- `Custom Tools`: local tool definitions; the model sees only tool names/descriptions, and local results are returned into later context.
 
 The API key stays in the browser only for static deployments. Docker deployments send model requests to the same-origin local proxy first, then the container's Node service forwards them to the configured model API so the browser does not need CORS access to the model provider.
 
@@ -144,24 +153,24 @@ The model should return a single JSON object and avoid Markdown or explanatory p
 { "action": "tap", "x": 540, "y": 1280, "reason": "Click the search box" }
 ```
 
-Supported canonical JSON actions:
+Recommended canonical JSON actions:
 
 | Action | Meaning |
 | --- | --- |
 | `launch` | Launch an app by common app name or package name |
 | `tap` | Tap a screen coordinate |
 | `swipe` | Swipe from one point to another |
-| `input_text` | Type text |
+| `input_text` | Type text; `clear:true` clears the currently focused field first |
+| `type_secret` | Type a local secret; the model sends only `secretId` and never sees the value |
+| `custom_tool` | Run a locally configured Custom Tool |
 | `key` | Send an Android key such as `BACK`, `HOME`, or `ENTER` |
 | `back` | Navigate back |
 | `home` | Return to the home screen |
 | `long_press` | Long-press a coordinate |
 | `double_tap` | Double-tap a coordinate |
-| `wait` | Wait for a duration |
+| `wait` | Wait for a duration, preferably with `duration` in seconds |
 | `take_over` | Request human takeover |
-| `interact` | Ask a human to make a choice or provide input |
 | `note` | Record an observation without touching the device |
-| `call_api` | Ask for summary or analysis of recorded context |
 | `done` | Mark the task as complete |
 
 Examples:
@@ -178,6 +187,31 @@ Examples:
 { "action": "take_over", "message": "The user needs to enter a verification code" }
 ```
 
+```json
+{ "action": "type_secret", "secretId": "gmail_password", "clear": true, "reason": "Type the configured local password" }
+```
+
+The legacy compatibility layer still accepts `interact` and `call_api`, but they are not recommended real execution actions. `interact` is converted to `take_over`; `call_api` is converted to `take_over` with an unsupported-second-API-call message.
+
+## mobilerun Compatibility
+
+The parser also accepts common mobilerun-style actions and maps them to real WebDroid execution actions:
+
+| mobilerun style | WebDroid execution |
+| --- | --- |
+| `click_at` / `tap_at` | `tap` |
+| `click_area` / `tap_area` | tap the area center |
+| `long_press_at` | `long_press` |
+| `type_text` / `type_text_direct` | `input_text` |
+| `type_secret` | `type_secret` |
+| `custom_tool` | `custom_tool` |
+| `system_button` / `press_button` | `key` |
+| `open_app` / `open_bundle_id` | `launch` |
+| `remember` | `note` |
+| `complete` | `done` |
+
+`swipe` also accepts `coordinate`, `coordinate2`, and `duration` in seconds. mobilerun-style `coordinate`, `point`, `position`, and `click_area` coordinates are screenshot pixels. Only Open-AutoGLM `element` coordinates keep using the `0-1000` relative coordinate space.
+
 ## Open-AutoGLM Compatibility
 
 The parser also accepts Open-AutoGLM-style action names and payloads, including:
@@ -192,9 +226,11 @@ The parser also accepts Open-AutoGLM-style action names and payloads, including:
 - `Double Tap`
 - `Wait`
 - `Take_over`
-- `Interact`
+- `Interact`, converted to `take_over`
 - `Note`
-- `Call_API`
+- `Call_API`, converted to `take_over` with an unsupported-second-API-call message
+- `type_secret(secret_id="...")`
+- `custom_tool(tool="...")`
 
 It also accepts function-style outputs such as:
 
@@ -206,13 +242,14 @@ Open-AutoGLM coordinates use the `0-1000` relative coordinate space; canonical J
 
 ## Device Control Details
 
-- Launching apps: use the built-in common app-name mapping or pass an Android package name directly.
+- Launching apps: prefer the device's installed-app list, and also support built-in common app-name mappings or direct Android package names.
 - Tap and swipe: coordinates are validated against the screen bounds before execution.
 - Long press: simulated with Android `input swipe x y x y duration`.
 - Double tap: two taps with a configurable delay in between.
 - Text input: simple ASCII text uses Android `input text`.
-- Chinese and complex text: can use the ADB Keyboard broadcast method.
-- ADB Keyboard mode requires `com.android.adbkeyboard/.AdbIME` to be installed and enabled on the device.
+- Clear-before-type, Chinese, and complex text: use ADB Keyboard or AutoGLM Keyboard broadcast input.
+- ADB Keyboard mode requires `com.android.adbkeyboard/.AdbIME` to be installed and enabled on the device; the device panel provides install and enable controls.
+- After every device action, the app waits according to the `Action settle` setting so the next step is less likely to run during animation or page loading.
 
 ## Safety Boundaries
 
@@ -221,55 +258,78 @@ The frontend tries to constrain and confirm actions before execution:
 - Model output must parse into a supported action.
 - Coordinates are checked against the screen bounds.
 - Text input is length-limited and control characters are rejected.
+- `type_secret` receives only a local secret ID from the model; real secret values are not sent to model requests or result summaries.
 - Auto-execution has a maximum step count.
 - The user can stop the run at any time.
-- Sensitive taps can require human confirmation.
-- `take_over`, `interact`, `note`, `call_api`, and `done` do not directly control the device.
+- Sensitive taps can require human confirmation; unrestricted mode skips those confirmations.
+- `take_over`, `note`, and `done` do not directly control the device; legacy `interact` and `call_api` are converted to human takeover unless unrestricted mode is enabled.
 
-It is still strongly recommended to avoid letting the agent handle account login, payments, checkout, deletions, authorization, verification codes, or privacy-sensitive pages. When the model returns `take_over`, auto-execution stops and waits for a human.
+It is still strongly recommended to avoid letting the agent handle account login, payments, checkout, deletions, authorization, verification codes, or privacy-sensitive pages. By default, when the model returns `take_over`, auto-execution stops and waits for a human; unrestricted mode does not stop on takeover requests.
 
 ## Project Structure
 
 ```text
 src/
   adapters/
+    adbKeyboard.ts            # ADB Keyboard install, detection, and encoding helpers
     appPackages.ts            # common app-name to package-name mappings
-    deviceBackend.ts          # device backend compatibility exports
-    deviceCommands.ts         # ADB command building, keyboard, and sensitive actions
+    deviceCommands.ts         # device command compatibility exports
     deviceParsers.ts          # dumpsys and screenshot byte parsing
     deviceRetry.ts            # device-read retry and delay helpers
+    deviceTiming.ts           # device execution timing defaults
     deviceTypes.ts            # shared device backend types and errors
+    inputCommands.ts          # ADB input command building
     installedApps.ts          # installed-app parsing, search, and display names
+    sensitiveActions.ts       # sensitive action confirmation
     screenshotPreprocess.ts   # screenshot preprocessing
+    stayAwakeCommands.ts      # stay-awake commands while ADB is connected
     webAdbBackend.ts          # WebADB/WebUSB implementation
   components/
-    ChatPanel.tsx             # chat transcript and composer
-    DevicePanel.tsx           # device connection and execution settings panel
+    AgentStepCard.tsx         # agent step card
+    AppTopbar.tsx             # brand and status topbar
+    ChatHistorySidebar.tsx    # chat-history sidebar
+    ChatPanel.tsx             # chat transcript and composer shell
+    ConfigRail.tsx            # collapsed configuration shortcuts
+    ConfigSidebar.tsx         # device and model configuration sidebar composition
+    ConversationPanel.tsx     # chat, history, and pending action view
     DeviceOptionsSection.tsx  # device input, confirmation, and timing options
+    DevicePanel.tsx           # device connection and execution settings panel
     DirectCommandsSection.tsx # direct ADB action panel
     InstalledAppsSection.tsx  # installed-app search and launch controls
+    LazyDetails.tsx           # lazily rendered collapsible sections
+    MarkdownContent.tsx       # chat message Markdown rendering
     ModelPanel.tsx            # model configuration panel
     PendingActionCard.tsx     # pending action confirmation card
     PhoneStage.tsx            # phone screenshot and action overlay
     RunLog.tsx                # run log view
-    RunPanel.tsx              # chat, advanced debug controls, and pending action view
-    RunControls.tsx           # advanced debug and stop controls
     ScreenshotLightbox.tsx    # screenshot preview modal
-    SettingsDialog.tsx        # app settings and repository information
+    SettingsDialog.tsx        # app settings, repository info, and editable resources
+    TutorialPanel.tsx         # quick-start tutorial expanded from the topbar
   hooks/
+    useAgentRunController.ts        # auto-run and pending-action control
+    useAgentSessionHistory.ts       # session restore, persistence, and history state
     useBusyTask.ts                  # busy-task and error state management
+    useConfigTargetScroll.ts        # config sidebar target scrolling
     useDeviceBackendPreferences.ts  # device backend preference sync
+    useDeviceController.ts          # device connection, screenshot, and direct action state
     useDocumentPreferences.ts       # document theme and language attribute sync
+    useLatestValue.ts               # ref for reading latest values inside async callbacks
     usePersistedSettings.ts         # settings persistence on changes
     useRepositoryStats.ts           # GitHub repository stats loading for settings
     useRunLog.ts                    # run-log state management
+    useStorageEstimate.ts           # local storage quota estimate
   lib/
+    actionDefaults.ts         # common screenshot action defaults
+    actionParser.ts           # action parsing, normalization, and validation
     actionPreview.ts          # action preview text formatting
+    actionProtocol.ts         # explicit action protocol enum
+    actionSafetyPolicy.ts     # local action safety policy
     actionTypes.ts            # action types and validation error definitions
-    actions.ts                # action parsing, normalization, and validation
+    actions.ts                # action module compatibility barrel
+    agentResources.ts         # local Secret and Custom Tool resources
     agent.ts                  # agent loop orchestration
     agentThread.ts            # persistent agent thread/turn/event model
-    appCards.ts               # model context cards for common apps
+    appCards.ts               # editable app context cards
     appCopy.ts                # localized copy aggregation and locale resolution
     appCopy.en-US.ts          # English UI copy
     appCopy.zh-CN.ts          # Chinese UI copy
@@ -277,32 +337,50 @@ src/
     contextBuilder.ts         # model context building and compaction
     deviceDoctor.ts           # device and model configuration diagnostics
     deviceState.ts            # device state display formatting
+    interactionStream.ts      # combined chat message and agent step display stream
     openAiClient.ts           # OpenAI-compatible network client
     openAiErrors.ts           # OpenAI client error types
     openAiPayload.ts          # OpenAI-compatible request payload building
     openAiResponse.ts         # OpenAI-compatible response reading and error formatting
+    openAiRuntimeConfig.ts    # OpenAI request runtime configuration
     openAiTypes.ts            # OpenAI client and message types
+    promptContextFormatting.ts # model context formatting helpers
     prompts.ts                # prompts and action rules
     repository.ts             # repository links and GitHub stats parsing
     runLogEntries.ts          # run-log entry and screenshot-view formatting
-    openAiRuntimeConfig.ts    # OpenAI request runtime configuration
-    screenshotCoordinates.ts  # screenshot coordinate mapping
+    screenshot/               # screenshot coordinates, context, and retention policy
+      coordinates.ts
+      index.ts
+      retention.ts
     settings.ts               # local settings persistence
     threadStore.ts            # agent thread persistent storage
     toolRegistry.ts           # agent action tool registration and execution
-  styles/                     # styles split by page area
-    compact-section.css       # collapsible tool-section styles
-    config-panel.css          # device and model configuration panel styles
-    controls.css              # forms, buttons, and shared control styles
-    index.css                 # global style entrypoint
-    layout.css                # page layout and panel frames
-    phone-stage.css           # phone preview and action-overlay styles
-    responsive.css            # responsive layout adjustments
-    run-log.css               # run-log styles
-    run-panel.css             # chat and advanced-debug styles
-    screenshot-lightbox.css   # screenshot preview modal styles
-    settings-dialog.css       # settings dialog styles
-    theme.css                 # theme tokens and base reset
+  styles/                    # styles split by page area
+    agent-step-card.css      # agent step-card styles
+    chat-composer.css        # chat composer styles
+    chat-history.css         # chat-history sidebar styles
+    chat-panel.css           # chat panel styles
+    compact-section.css      # collapsible tool-section styles
+    config-panel.css         # device and model configuration panel styles
+    config-rail.css          # collapsed config rail styles
+    controls.css             # forms, buttons, and shared control styles
+    conversation-panel.css   # conversation-panel shell and pending-action styles
+    device-doctor.css        # device doctor result styles
+    device-options.css       # device execution option styles
+    device-panel.css         # device connection section styles
+    direct-commands.css      # direct command panel styles
+    index.css                # global style entrypoint
+    installed-apps.css       # installed-app list styles
+    layout.css               # page layout and panel frames
+    markdown-content.css     # Markdown content styles
+    model-panel.css          # model configuration section styles
+    phone-stage.css          # phone preview and action-overlay styles
+    responsive.css           # responsive layout adjustments
+    run-log.css              # run-log styles
+    screenshot-lightbox.css  # screenshot preview modal styles
+    settings-dialog.css      # settings dialog styles
+    theme.css                # theme tokens and base reset
+    tutorial-panel.css       # tutorial panel styles
   App.tsx                     # page state, workflow logic, and component composition
   main.tsx                    # React entrypoint and global style loading
 server/
@@ -323,7 +401,10 @@ The current tests mainly cover:
 - Action parsing and action safety validation.
 - OpenAI-compatible request payload construction, response parsing, and network client errors.
 - Single-step and continuous agent execution.
+- Failure feedback, transient model API and empty-model-response retries, and limited automatic recovery.
 - Settings persistence and compatibility migration.
+- Agent thread/turn persistence.
+- Installed-app parsing, matching, and full context injection.
 - Screenshot coordinate mapping.
 - The run-log, screenshot preview, and main layout components.
 
@@ -333,7 +414,7 @@ Real-device control still needs manual verification with an Android device.
 
 The project is already set up on Cloudflare Pages:
 
-- Live site (legacy Pages hostname): https://webadb-autoglm.pages.dev/
+- Historical live site (legacy Pages hostname): https://webadb-autoglm.pages.dev/
 - Deployment method: automatic deployment from GitHub
 
 Redeploy:

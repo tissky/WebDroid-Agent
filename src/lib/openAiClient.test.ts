@@ -177,4 +177,105 @@ describe('createOpenAiClient', () => {
 
     expect(vi.mocked(fetcher).mock.calls[0][1]?.signal).toBe(controller.signal)
   })
+
+  it('retries retryable HTTP failures before returning the completion', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: { message: 'rate limited' } }, { status: 429 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: { message: 'busy' } }, { status: 503 }))
+      .mockResolvedValueOnce(completionResponse('{"action":"done"}'))
+    const client = createOpenAiClient(fetcher, { retryDelaysMs: [0, 0] })
+
+    const text = await client.completeAction({
+      baseUrl: 'https://api.example.com/v1/',
+      apiKey: 'secret',
+      model: 'agent-model',
+      task: 'Finish',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 10, height: 20 },
+    })
+
+    expect(text).toBe('{"action":"done"}')
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not retry non-retryable HTTP failures', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ error: { message: 'bad key' } }, { status: 401 }),
+    )
+    const client = createOpenAiClient(fetcher, { retryDelaysMs: [0, 0] })
+
+    await expect(
+      client.completeAction({
+        baseUrl: 'https://api.example.com/v1/',
+        apiKey: 'secret',
+        model: 'agent-model',
+        task: 'Finish',
+        screenshotDataUrl: 'data:image/png;base64,abc123',
+        screen: { width: 10, height: 20 },
+      }),
+    ).rejects.toThrow('Model API failed with 401: bad key')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops after configured HTTP retry attempts are exhausted', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ error: { message: 'still busy' } }, { status: 503 }),
+    )
+    const client = createOpenAiClient(fetcher, { retryDelaysMs: [0, 0] })
+
+    await expect(
+      client.completeAction({
+        baseUrl: 'https://api.example.com/v1/',
+        apiKey: 'secret',
+        model: 'agent-model',
+        task: 'Finish',
+        screenshotDataUrl: 'data:image/png;base64,abc123',
+        screen: { width: 10, height: 20 },
+      }),
+    ).rejects.toThrow('Model API failed with 503: still busy')
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('retries transient network failures', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(completionResponse('{"action":"done"}'))
+    const client = createOpenAiClient(fetcher, { retryDelaysMs: [0] })
+
+    const text = await client.completeAction({
+      baseUrl: 'https://api.example.com/v1/',
+      apiKey: 'secret',
+      model: 'agent-model',
+      task: 'Finish',
+      screenshotDataUrl: 'data:image/png;base64,abc123',
+      screen: { width: 10, height: 20 },
+    })
+
+    expect(text).toBe('{"action":"done"}')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry aborted requests', async () => {
+    const abortError = new DOMException('The operation was aborted.', 'AbortError')
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      throw abortError
+    })
+    const client = createOpenAiClient(fetcher, { retryDelaysMs: [0, 0] })
+
+    await expect(
+      client.completeAction({
+        baseUrl: 'https://api.example.com/v1/',
+        apiKey: 'secret',
+        model: 'agent-model',
+        task: 'Finish',
+        screenshotDataUrl: 'data:image/png;base64,abc123',
+        screen: { width: 10, height: 20 },
+      }),
+    ).rejects.toThrow('The operation was aborted.')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
 })

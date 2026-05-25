@@ -3,7 +3,7 @@ import { buildActionPreview } from './actionPreview'
 import type { ScreenSize } from './actionTypes'
 import type { AgentStep } from './agent'
 import { formatDeviceState } from './deviceState'
-import { modelScreenshotView } from './screenshotCoordinates'
+import { modelScreenshotView } from './screenshot'
 
 export type LogScreenshot = {
   dataUrl: string

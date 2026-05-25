@@ -8,11 +8,15 @@ export type RunLogLabels = {
   clear: string
   closeScreenshotPreview: string
   empty: string
-  openScreenshotFor: (title: string) => string
-  screenshotDialogFor: (title: string) => string
-  title: string
-  screenshotFor: (title: string) => string
+  executionResult: string
   expandedScreenshotFor: (title: string) => string
+  modelOutput: string
+  openScreenshotFor: (title: string) => string
+  parsedAction: string
+  screenshotDialogFor: (title: string) => string
+  screenshotFor: (title: string) => string
+  step: (step: number) => string
+  title: string
 }
 
 export type RunLogProps = {
@@ -22,6 +26,7 @@ export type RunLogProps = {
 }
 
 type StepTimelineProps = {
+  labels: RunLogLabels
   timeline: NonNullable<LogEntry['timeline']>
 }
 
@@ -37,11 +42,15 @@ export function RunLog({
     clear: 'Clear',
     closeScreenshotPreview: 'Close screenshot preview',
     empty: 'No events yet',
-    openScreenshotFor: (title: string) => `Open screenshot for ${title}`,
-    screenshotDialogFor: (title: string) => `Screenshot for ${title}`,
-    title: 'Run Log',
-    screenshotFor: (title: string) => `Screenshot for ${title}`,
+    executionResult: 'Execution result',
     expandedScreenshotFor: (title: string) => `Expanded screenshot for ${title}`,
+    modelOutput: 'Model output',
+    openScreenshotFor: (title: string) => `Open screenshot for ${title}`,
+    parsedAction: 'Parsed action',
+    screenshotDialogFor: (title: string) => `Screenshot for ${title}`,
+    screenshotFor: (title: string) => `Screenshot for ${title}`,
+    step: (step: number) => `Step ${step}`,
+    title: 'Run Log',
   },
 }: RunLogProps) {
   return (
@@ -70,7 +79,9 @@ export function RunLog({
             {entry.detail || entry.timeline || entry.screenshot ? (
               <div className="log-entry-body">
                 <div className="log-entry-text">
-                  {entry.timeline ? <StepTimeline timeline={entry.timeline} /> : null}
+                  {entry.timeline ? (
+                    <StepTimeline labels={labels} timeline={entry.timeline} />
+                  ) : null}
                   {entry.detail ? <pre>{entry.detail}</pre> : null}
                 </div>
                 {entry.screenshot ? (
@@ -96,20 +107,20 @@ export function RunLog({
   )
 }
 
-function StepTimeline({ timeline }: StepTimelineProps) {
+function StepTimeline({ labels, timeline }: StepTimelineProps) {
   return (
     <div className="step-timeline">
       <div className="step-timeline-header">
-        {timeline.step ? <span>Step {timeline.step}</span> : null}
+        {timeline.step ? <span>{labels.step(timeline.step)}</span> : null}
         {timeline.currentApp ? <strong>{timeline.currentApp}</strong> : null}
         {timeline.packageName ? <code>{timeline.packageName}</code> : null}
       </div>
       {timeline.modelOutput ? (
-        <TimelineField label="Model output" value={timeline.modelOutput} />
+        <TimelineField label={labels.modelOutput} value={timeline.modelOutput} />
       ) : null}
       {timeline.actionPreview || timeline.executionActionPreview ? (
         <TimelineField
-          label="Parsed action"
+          label={labels.parsedAction}
           value={[
             timeline.actionPreview,
             timeline.executionActionPreview &&
@@ -122,7 +133,7 @@ function StepTimeline({ timeline }: StepTimelineProps) {
         />
       ) : null}
       {timeline.executionResult ? (
-        <TimelineField label="Execution result" value={timeline.executionResult} />
+        <TimelineField label={labels.executionResult} value={timeline.executionResult} />
       ) : null}
     </div>
   )

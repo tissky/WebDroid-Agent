@@ -1,6 +1,9 @@
 import type { DeviceScreenshot, DeviceState } from '../adapters/deviceTypes'
 import type { AgentAction } from './actionTypes'
+import type { ActionProtocol } from './actionProtocol'
+import { createUnknownDeviceState, UNKNOWN_APP_NAME } from './deviceState'
 import type { AgentConversationMessage, AgentHistoryItem, ModelConfig } from './openAiTypes'
+import { compactScreenshotForMemory } from './screenshot'
 
 const DEFAULT_THREAD_TITLE = 'New chat'
 
@@ -22,10 +25,13 @@ export type AgentTurnStatus =
   | 'awaiting_takeover'
 
 export type AgentSettingsSnapshot = {
+  actionProtocol?: ActionProtocol
   modelConfig?: Pick<ModelConfig, 'baseUrl' | 'model' | 'stream'>
   autoExecute?: boolean
   maxSteps?: number
   confirmSensitiveActions?: boolean
+  unrestrictedMode?: boolean
+  screenBlackoutDuringAutoControl?: boolean
   preferAdbKeyboard?: boolean
   actionSettleMs?: number
   doubleTapIntervalMs?: number
@@ -180,8 +186,8 @@ export function createAgentThread(
     title: task.trim() || DEFAULT_THREAD_TITLE,
     status: 'idle',
     task,
-    currentApp: 'Unknown',
-    deviceState: { app: 'Unknown' },
+    currentApp: UNKNOWN_APP_NAME,
+    deviceState: createUnknownDeviceState(),
     visitedPackages: [],
     visitedActivities: [],
     actionOutcomes: [],
@@ -258,6 +264,7 @@ export type StartThreadTurnInput = {
 
 export function startThreadTurn(thread: AgentThread, input: StartThreadTurnInput): AgentTurn {
   const now = input.now ?? Date.now()
+  const turnDeviceSnapshot = omitSnapshotScreenshot(input.deviceSnapshot)
   const turn: AgentTurn = {
     id: input.id ?? createId('turn'),
     index: input.index,
@@ -265,7 +272,7 @@ export function startThreadTurn(thread: AgentThread, input: StartThreadTurnInput
     task: input.task,
     latestUserMessage: input.latestUserMessage,
     promptContext: input.promptContext,
-    deviceSnapshot: input.deviceSnapshot,
+    deviceSnapshot: turnDeviceSnapshot,
     modelOutput: input.modelOutput,
     action: input.action,
     executionAction: input.executionAction,
@@ -281,9 +288,8 @@ export function startThreadTurn(thread: AgentThread, input: StartThreadTurnInput
     {
       type: 'device_snapshot',
       turnId: turn.id,
-      currentApp: input.deviceSnapshot.currentApp,
-      deviceState: input.deviceSnapshot.deviceState,
-      screenshot: input.deviceSnapshot.screenshot,
+      currentApp: turnDeviceSnapshot.currentApp,
+      deviceState: turnDeviceSnapshot.deviceState,
     },
     { now },
   )
@@ -323,11 +329,13 @@ export function recordThreadTurnExecution(
     input.status ??
     (turn.action.action === 'done'
       ? 'done'
-      : turn.action.action === 'take_over'
-        ? 'awaiting_takeover'
-        : input.success === false
+      : input.success === false
           ? 'failed'
-          : 'executed')
+          : input.success === true
+            ? 'executed'
+            : turn.action.action === 'take_over'
+              ? 'awaiting_takeover'
+              : 'executed')
 
   thread.lastActionPreview = turn.preview
   thread.lastExecutionResult = input.executionResult
@@ -452,14 +460,15 @@ export function updateThreadDeviceSnapshot(
   thread: AgentThread,
   snapshot: AgentDeviceSnapshot,
 ) {
-  thread.currentApp = snapshot.currentApp
-  thread.deviceState = snapshot.deviceState
-  thread.deviceSnapshot = snapshot
-  if (snapshot.screenshot) {
-    thread.lastScreenshot = snapshot.screenshot
+  const retainedSnapshot = compactDeviceSnapshot(snapshot)
+  thread.currentApp = retainedSnapshot.currentApp
+  thread.deviceState = retainedSnapshot.deviceState
+  thread.deviceSnapshot = retainedSnapshot
+  if (retainedSnapshot.screenshot) {
+    thread.lastScreenshot = retainedSnapshot.screenshot
   }
-  addUnique(thread.visitedPackages, snapshot.deviceState.packageName)
-  addUnique(thread.visitedActivities, snapshot.deviceState.activity)
+  addUnique(thread.visitedPackages, retainedSnapshot.deviceState.packageName)
+  addUnique(thread.visitedActivities, retainedSnapshot.deviceState.activity)
 }
 
 export function createConversationMessage(
@@ -480,6 +489,22 @@ function touchThread(thread: AgentThread, now = Date.now()) {
 function addUnique(values: string[], value: string | undefined) {
   if (value && !values.includes(value)) {
     values.push(value)
+  }
+}
+
+function compactDeviceSnapshot(snapshot: AgentDeviceSnapshot): AgentDeviceSnapshot {
+  return snapshot.screenshot
+    ? {
+        ...snapshot,
+        screenshot: compactScreenshotForMemory(snapshot.screenshot),
+      }
+    : snapshot
+}
+
+function omitSnapshotScreenshot(snapshot: AgentDeviceSnapshot): AgentDeviceSnapshot {
+  return {
+    currentApp: snapshot.currentApp,
+    deviceState: snapshot.deviceState,
   }
 }
 

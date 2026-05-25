@@ -1,0 +1,26 @@
+.model-box {
+  background: var(--subtle-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.model-box > span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.model-details {
+  display: grid;
+  gap: 4px;
+}
+
+.model-details summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style-position: inside;
+}

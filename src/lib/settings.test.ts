@@ -28,6 +28,7 @@ describe('settings persistence', () => {
 
   it('loads all persisted setting fields', () => {
     const persisted: AppSettings = {
+      actionProtocol: 'mobilerun_xml',
       modelConfig: {
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-test',
@@ -36,6 +37,8 @@ describe('settings persistence', () => {
       maxSteps: 12,
       preferAdbKeyboard: true,
       confirmSensitiveActions: false,
+      unrestrictedMode: true,
+      screenBlackoutDuringAutoControl: true,
       streamResponses: true,
       actionSettleMs: 350,
       doubleTapIntervalMs: 75,
@@ -90,7 +93,9 @@ describe('settings persistence', () => {
         memoryStorage({
           'webdroid-agent-settings': JSON.stringify({
             ...DEFAULT_SETTINGS,
+            actionProtocol: 'invalid-protocol',
             promptMode: 'invalid-mode',
+            screenBlackoutDuringAutoControl: 'yes',
             streamResponses: 'yes',
             actionSettleMs: -1,
             doubleTapIntervalMs: 10000,

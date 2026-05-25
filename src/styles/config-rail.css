@@ -1,0 +1,24 @@
+.config-rail {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.config-rail-button {
+  aspect-ratio: 1;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 12px;
+  color: var(--text-secondary);
+  min-height: 42px;
+  padding: 0;
+  width: 42px;
+}
+
+.config-rail-button:hover:not(:disabled),
+.config-rail-button:focus-visible {
+  background: var(--button-bg-hover);
+  border-color: var(--border);
+  color: var(--accent);
+}

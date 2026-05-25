@@ -6,7 +6,7 @@ export type DeviceInfo = {
 }
 
 export type DeviceScreenshot = {
-  bytes: Uint8Array
+  bytes?: Uint8Array
   dataUrl: string
   screen: ScreenSize
   modelDataUrl?: string
@@ -59,6 +59,8 @@ export type DeviceBackend = {
   getInputMethods?(): Promise<string>
   getInstalledApps?(): Promise<InstalledApp[]>
   installAdbKeyboard?(apkBytes: Uint8Array): Promise<string>
+  startScreenBlackout?(): Promise<string>
+  stopScreenBlackout?(): Promise<string>
   execute(action: AgentAction, options?: ExecuteActionOptions): Promise<string>
 }
 

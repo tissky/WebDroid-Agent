@@ -3,7 +3,9 @@ import {
   chooseGridDivisions,
   fitDimensionsToMaxSide,
   MODEL_SCREENSHOT_MAX_SIDE,
-} from '../lib/screenshotCoordinates'
+  MODEL_SCREENSHOT_MIME_TYPE,
+  MODEL_SCREENSHOT_QUALITY,
+} from '../lib/screenshot'
 
 export type PreprocessedScreenshot = {
   modelDataUrl: string
@@ -16,6 +18,8 @@ export type ScreenshotPreprocessInput = {
   screen: ScreenSize
   drawGrid?: boolean
   maxSide?: number
+  mimeType?: string
+  quality?: number
 }
 
 export async function preprocessScreenshotForModel({
@@ -23,11 +27,15 @@ export async function preprocessScreenshotForModel({
   screen,
   drawGrid = true,
   maxSide = MODEL_SCREENSHOT_MAX_SIDE,
+  mimeType = MODEL_SCREENSHOT_MIME_TYPE,
+  quality = MODEL_SCREENSHOT_QUALITY,
 }: ScreenshotPreprocessInput): Promise<PreprocessedScreenshot> {
   const modelScreen = fitDimensionsToMaxSide(screen, maxSide)
   const modelGridDivisions = chooseGridDivisions(modelScreen)
+  const unchangedSize = modelScreen.width === screen.width && modelScreen.height === screen.height
+  const alreadyEncodedForModel = dataUrl.startsWith(`data:${mimeType};`)
 
-  if (!drawGrid && modelScreen.width === screen.width && modelScreen.height === screen.height) {
+  if (!drawGrid && unchangedSize && alreadyEncodedForModel) {
     return { modelDataUrl: dataUrl, modelScreen, modelGridDivisions }
   }
 
@@ -50,7 +58,7 @@ export async function preprocessScreenshotForModel({
   }
 
   return {
-    modelDataUrl: canvas.toDataURL('image/png'),
+    modelDataUrl: canvas.toDataURL(mimeType, quality),
     modelScreen,
     modelGridDivisions,
   }

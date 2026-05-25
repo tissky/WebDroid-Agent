@@ -7,6 +7,15 @@ import {
   MoveRight,
 } from 'lucide-react'
 import { useState } from 'react'
+import {
+  DEFAULT_DIRECT_SWIPE_FROM_X,
+  DEFAULT_DIRECT_SWIPE_FROM_Y,
+  DEFAULT_DIRECT_SWIPE_TO_X,
+  DEFAULT_DIRECT_SWIPE_TO_Y,
+  DEFAULT_DIRECT_TAP_X,
+  DEFAULT_DIRECT_TAP_Y,
+  DEFAULT_SWIPE_DURATION_MS,
+} from '../lib/actionDefaults'
 import type { AgentAction } from '../lib/actionTypes'
 import type { AppCopy } from '../lib/appCopy'
 import type { BusyTask } from '../lib/busyTask'
@@ -26,12 +35,12 @@ export function DirectCommandsSection({
   onRunDirectAction,
   sectionId,
 }: DirectCommandsSectionProps) {
-  const [tapX, setTapX] = useState(0)
-  const [tapY, setTapY] = useState(0)
-  const [swipeFromX, setSwipeFromX] = useState(540)
-  const [swipeFromY, setSwipeFromY] = useState(1800)
-  const [swipeToX, setSwipeToX] = useState(540)
-  const [swipeToY, setSwipeToY] = useState(600)
+  const [tapX, setTapX] = useState(DEFAULT_DIRECT_TAP_X)
+  const [tapY, setTapY] = useState(DEFAULT_DIRECT_TAP_Y)
+  const [swipeFromX, setSwipeFromX] = useState(DEFAULT_DIRECT_SWIPE_FROM_X)
+  const [swipeFromY, setSwipeFromY] = useState(DEFAULT_DIRECT_SWIPE_FROM_Y)
+  const [swipeToX, setSwipeToX] = useState(DEFAULT_DIRECT_SWIPE_TO_X)
+  const [swipeToY, setSwipeToY] = useState(DEFAULT_DIRECT_SWIPE_TO_Y)
   const [directText, setDirectText] = useState('')
 
   const isBusy = Boolean(busyTask)
@@ -112,7 +121,7 @@ export function DirectCommandsSection({
               fromY: swipeFromY,
               toX: swipeToX,
               toY: swipeToY,
-              durationMs: 400,
+              durationMs: DEFAULT_SWIPE_DURATION_MS,
             })
           }
           disabled={directDisabled}

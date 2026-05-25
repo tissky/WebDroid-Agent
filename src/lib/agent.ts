@@ -7,15 +7,25 @@ import type {
 } from '../adapters/deviceTypes'
 import { buildActionPreview } from './actionPreview'
 import type { AgentAction } from './actionTypes'
-import { parseModelAction } from './actions'
-import { resolveAppCard } from './appCards'
+import { parseModelAction } from './actionParser'
+import { createDefaultAppCards, resolveAppCard, type AppCardMap } from './appCards'
+import type { ActionProtocol } from './actionProtocol'
+import {
+  customToolDescriptors,
+  secretDescriptors,
+  type CustomToolDefinition,
+  type SecretRecord,
+} from './agentResources'
+import { createUnknownDeviceState } from './deviceState'
 import type {
   AgentConversationMessage,
   AgentHistoryItem,
+  CompletionRequest,
   ModelConfig,
   OpenAiClient,
 } from './openAiTypes'
-import { mapActionCoordinates, modelScreenshotView } from './screenshotCoordinates'
+import { OpenAiClientError } from './openAiErrors'
+import { compactScreenshotForMemory, mapActionCoordinates, modelScreenshotView } from './screenshot'
 import { buildAgentPromptContext, compactThreadContext } from './contextBuilder'
 import {
   createAgentThread,
@@ -30,8 +40,11 @@ import {
 } from './agentThread'
 import {
   createDefaultActionToolRegistry,
+  type ActionToolResult,
   type ActionToolRegistry,
 } from './toolRegistry'
+
+const MAX_AUTO_RECOVERABLE_EXECUTION_FAILURES = 2
 
 export type AgentTiming = {
   captureMs: number
@@ -67,8 +80,13 @@ export type RunAgentStepInput = {
   device: DeviceBackend
   client: OpenAiClient
   modelConfig: ModelConfig
+  actionProtocol?: ActionProtocol
   task: string
+  unrestrictedMode?: boolean
   session?: AgentSession
+  appCards?: AppCardMap
+  customTools?: readonly CustomToolDefinition[]
+  secrets?: readonly SecretRecord[]
   index?: number
   onSnapshot?: (snapshot: AgentDeviceSnapshot) => void | Promise<void>
   signal?: AbortSignal
@@ -91,16 +109,21 @@ export type AgentRunResult = {
 
 export type AgentRunnerInput = {
   modelConfig: ModelConfig
+  actionProtocol?: ActionProtocol
   task: string
   autoExecute: boolean
   maxSteps: number
   session?: AgentSession
+  appCards?: AppCardMap
+  customTools?: readonly CustomToolDefinition[]
+  secrets?: readonly SecretRecord[]
   signal?: AbortSignal
   onSnapshot?: (snapshot: AgentDeviceSnapshot) => void | Promise<void>
   onStep?: (step: AgentStep) => void
   onExecuted?: (step: AgentStep, result: string) => void | Promise<void>
   onFinalResponse?: (response: string) => void | Promise<void>
   confirmSensitiveAction?: ExecuteActionOptions['confirmSensitiveAction']
+  unrestrictedMode?: boolean
 }
 
 export type CreateAgentRunnerInput = {
@@ -226,11 +249,16 @@ export async function runAgentStep({
   device,
   client,
   modelConfig,
+  actionProtocol = 'webdroid_json',
   task,
   session,
+  appCards = createDefaultAppCards(),
+  customTools,
   index = 1,
   onSnapshot,
+  secrets,
   signal,
+  unrestrictedMode,
 }: RunAgentStepInput): Promise<AgentStep> {
   if (signal?.aborted) {
     throw new DOMException('Run stopped.', 'AbortError')
@@ -244,9 +272,10 @@ export async function runAgentStep({
   const currentApp = deviceState.app
   const currentAppMs = elapsed(currentAppStartedAt)
   const modelScreenshot = modelScreenshotView(screenshot)
+  const retainedScreenshot = compactScreenshotForMemory(screenshot)
   await onSnapshot?.({
     index,
-    screenshot,
+    screenshot: retainedScreenshot,
     currentApp,
     deviceState,
   })
@@ -257,9 +286,16 @@ export async function runAgentStep({
   const modelStartedAt = now()
   if (session) {
     session.stepNumber = Math.max(session.stepNumber, index)
-    updateSessionDeviceSnapshot(session, { currentApp, deviceState, screenshot })
+    updateSessionDeviceSnapshot(session, {
+      currentApp,
+      deviceState,
+      screenshot: retainedScreenshot,
+    })
   }
   const pendingUserMessages = session ? [...session.pendingUserMessages] : []
+  const appCard = resolveAppCard(appCards, deviceState.packageName)
+  const promptCustomTools = customToolDescriptors(customTools ?? [])
+  const promptSecrets = secretDescriptors(secrets ?? [])
   const builtContext = buildAgentPromptContext({
     thread: session,
     task,
@@ -269,12 +305,15 @@ export async function runAgentStep({
     deviceScreen: screenshot.screen,
     currentApp,
     deviceState,
-    appCard: resolveAppCard(deviceState.packageName),
+    appCard,
+    customTools: promptCustomTools,
     installedApps,
+    secrets: promptSecrets,
   })
   const promptContext = builtContext.text
-  const completionRequest = {
+  const completionRequest: CompletionRequest = {
     ...modelConfig,
+    actionProtocol,
     task,
     conversation: session?.messages,
     screenshotDataUrl: modelScreenshot.dataUrl,
@@ -283,12 +322,15 @@ export async function runAgentStep({
     currentApp,
     deviceState,
     history: builtContext.history,
-    appCard: resolveAppCard(deviceState.packageName),
+    appCard,
+    customTools: promptCustomTools,
     installedApps,
+    secrets: promptSecrets,
     promptContext,
+    unrestrictedMode,
     signal,
   }
-  let modelOutput = await client.completeAction(completionRequest)
+  let modelOutput = await completeActionWithEmptyContentRetry(client, completionRequest)
   let modelMs = elapsed(modelStartedAt)
   let parseStartedAt = now()
   let action = parseActionOrError(modelOutput, modelScreenshot.screen)
@@ -327,7 +369,7 @@ export async function runAgentStep({
         task,
         latestUserMessage: latestUserMessage(session.messages),
         promptContext,
-        deviceSnapshot: { currentApp, deviceState, screenshot },
+        deviceSnapshot: { currentApp, deviceState, screenshot: retainedScreenshot },
         modelOutput,
         action,
         executionAction,
@@ -343,7 +385,7 @@ export async function runAgentStep({
     index,
     turnId: turn?.id,
     promptContext,
-    screenshot,
+    screenshot: retainedScreenshot,
     currentApp,
     deviceState,
     modelOutput,
@@ -362,6 +404,53 @@ function parseActionOrError(raw: string, screen: DeviceScreenshot['screen']) {
   }
 }
 
+async function completeActionWithEmptyContentRetry(
+  client: OpenAiClient,
+  request: CompletionRequest,
+) {
+  try {
+    return await client.completeAction(request)
+  } catch (caught) {
+    if (!isEmptyAssistantContentError(caught) || request.signal?.aborted) {
+      throw caught
+    }
+
+    return client.completeAction({
+      ...request,
+      conversation: [],
+      history: request.history?.slice(-6),
+      stream: false,
+      promptContext: [
+        request.promptContext,
+        emptyContentRetryInstruction(request.actionProtocol),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    })
+  }
+}
+
+function emptyContentRetryInstruction(actionProtocol: CompletionRequest['actionProtocol']) {
+  const prefix = [
+    'The previous model response for this exact screenshot was empty.',
+    'Use the screenshot and compact context above, then return exactly one valid',
+  ].join(' ')
+  if (actionProtocol === 'open_autoglm_function') {
+    return `${prefix} Open-AutoGLM <think>...</think><answer>...</answer> action.`
+  }
+  if (actionProtocol === 'mobilerun_xml') {
+    return `${prefix} mobilerun <function_calls>...</function_calls> tool call block.`
+  }
+  return `${prefix} JSON action object.`
+}
+
+function isEmptyAssistantContentError(error: unknown) {
+  return (
+    error instanceof OpenAiClientError &&
+    /No assistant content returned by model/i.test(error.message)
+  )
+}
+
 export function createAgentRunner({
   device,
   client,
@@ -372,6 +461,7 @@ export function createAgentRunner({
       const steps: AgentStep[] = []
       const session = input.session ?? createAgentSession(input.task)
       const startIndex = nextAgentStepIndex(session)
+      let recoverableExecutionFailures = 0
 
       for (let offset = 0; offset < input.maxSteps; offset += 1) {
         const index = startIndex + offset
@@ -385,11 +475,16 @@ export function createAgentRunner({
             device,
             client,
             modelConfig: input.modelConfig,
+            actionProtocol: input.actionProtocol,
             task: input.task,
             session,
+            appCards: input.appCards,
+            customTools: input.customTools,
             index,
             onSnapshot: input.onSnapshot,
+            secrets: input.secrets,
             signal: input.signal,
+            unrestrictedMode: input.unrestrictedMode,
           })
         } catch (caught) {
           if (input.signal?.aborted || isAbortError(caught)) {
@@ -418,7 +513,7 @@ export function createAgentRunner({
           return { status: 'done', steps, finalResponse }
         }
 
-        if (step.action.action === 'take_over') {
+        if (step.action.action === 'take_over' && !input.unrestrictedMode) {
           recordAgentStep(session, step)
           return { status: 'awaiting_takeover', steps }
         }
@@ -440,12 +535,15 @@ export function createAgentRunner({
         const result = await toolRegistry.execute(step.executionAction, {
           device,
           confirmSensitiveAction: input.confirmSensitiveAction,
+          unrestrictedMode: input.unrestrictedMode,
           safetyContext: {
             task: input.task,
             currentApp: step.currentApp,
             deviceState: step.deviceState,
             modelOutput: step.modelOutput,
           },
+          customTools: input.customTools,
+          secrets: input.secrets,
         })
         if (input.signal?.aborted) {
           return { status: 'stopped', steps }
@@ -456,13 +554,26 @@ export function createAgentRunner({
           if (result.safetyDecision === 'take_over') {
             return { status: 'awaiting_takeover', steps, reason: result.summary }
           }
-          return { status: 'awaiting_review', steps, reason: result.summary }
+          if (!isAutoRecoverableExecutionFailure(result)) {
+            return { status: 'awaiting_review', steps, reason: result.summary }
+          }
+
+          recoverableExecutionFailures += 1
+          if (recoverableExecutionFailures > MAX_AUTO_RECOVERABLE_EXECUTION_FAILURES) {
+            return { status: 'awaiting_review', steps, reason: result.summary }
+          }
+          continue
         }
+        recoverableExecutionFailures = 0
       }
 
       return { status: 'max_steps', steps }
     },
   }
+}
+
+function isAutoRecoverableExecutionFailure(result: ActionToolResult) {
+  return !result.safetyDecision
 }
 
 function markPendingUserMessagesConsumed(
@@ -554,7 +665,7 @@ async function getDeviceStateOrUnknown(device: DeviceBackend): Promise<DeviceSta
   try {
     return await device.getDeviceState()
   } catch {
-    return { app: 'Unknown' }
+    return createUnknownDeviceState()
   }
 }
 

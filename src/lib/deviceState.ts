@@ -1,5 +1,11 @@
 import type { DeviceState } from '../adapters/deviceTypes'
 
+export const UNKNOWN_APP_NAME = 'Unknown'
+
+export function createUnknownDeviceState(): DeviceState {
+  return { app: UNKNOWN_APP_NAME }
+}
+
 export function formatDeviceState(state: DeviceState) {
   return [
     `Current app: ${state.app}`,

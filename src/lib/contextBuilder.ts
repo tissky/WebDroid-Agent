@@ -1,29 +1,34 @@
 import type { DeviceState, InstalledApp } from '../adapters/deviceTypes'
-import {
-  getInstalledAppDisplayName,
-  selectInstalledAppsForPrompt,
-} from '../adapters/installedApps'
 import type { ScreenSize } from './actionTypes'
 import {
   addThreadEvent,
   type AgentThread,
   type AgentTurn,
 } from './agentThread'
-import { buildScreenshotContext } from './screenshotCoordinates'
 import type { AgentHistoryItem } from './openAiTypes'
+import type { CustomToolDescriptor, SecretDescriptor } from './agentResources'
+import {
+  buildPromptScreenInfo,
+  CANONICAL_COORDINATE_INSTRUCTION,
+  formatInstalledAppsForPrompt,
+  formatPromptHistoryItem,
+} from './promptContextFormatting'
 
 export type BuildAgentPromptContextInput = {
   thread?: AgentThread
   task: string
+  history?: readonly AgentHistoryItem[]
   latestUserMessage?: string
   screen: ScreenSize
   deviceScreen?: ScreenSize
   currentApp?: string
   deviceState?: DeviceState
   appCard?: string
+  customTools?: readonly CustomToolDescriptor[]
   installedApps?: readonly InstalledApp[]
   maxRecentTurns?: number
   pendingUserMessages?: readonly string[]
+  secrets?: readonly SecretDescriptor[]
 }
 
 export type BuiltAgentPromptContext = {
@@ -35,48 +40,47 @@ export type BuiltAgentPromptContext = {
 export function buildAgentPromptContext({
   thread,
   task,
+  history: fallbackHistory,
   latestUserMessage,
   screen,
   deviceScreen,
   currentApp,
   deviceState,
   appCard,
+  customTools,
   installedApps,
   maxRecentTurns = 12,
   pendingUserMessages,
+  secrets,
 }: BuildAgentPromptContextInput): BuiltAgentPromptContext {
-  const state = deviceState ?? { app: currentApp ?? 'Unknown' }
-  const history = thread ? historyFromRecentTurns(thread, maxRecentTurns) : []
-  const screenInfo = JSON.stringify({
-    current_app: currentApp ?? state.app ?? 'Unknown',
-    ...(state.packageName ? { package_name: state.packageName } : {}),
-    ...(state.activity ? { activity: state.activity } : {}),
-    ...(state.orientation ? { orientation: state.orientation } : {}),
-    ...(state.keyboard ? { keyboard: state.keyboard } : {}),
-    ...buildScreenshotContext({ modelScreen: screen, deviceScreen }),
-  })
-  const canonicalCoordinateInstruction = [
-    'Coordinates use pixels in the attached screenshot.',
-    'Use numeric x/y labels on major grid lines as anchors; do not answer with grid-cell numbers.',
-    'Your screenshot coordinates are mapped back to native device pixels before execution.',
-  ].join(' ')
+  const history = thread
+    ? historyFromRecentTurns(thread, maxRecentTurns)
+    : (fallbackHistory ?? []).slice(-maxRecentTurns)
+  const screenInfo = buildPromptScreenInfo({ currentApp, deviceScreen, deviceState, screen })
 
   const lines = [
     `Task: ${task}`,
     latestUserMessage ? `Latest user message: ${latestUserMessage}` : null,
     formatPendingUserMessages(pendingUserMessages),
     thread?.contextSummary ? `<context_summary>\n${thread.contextSummary}\n</context_summary>` : null,
+    thread ? formatRecentActionErrors(thread) : null,
     `Screen Info: ${screenInfo}`,
     appCard ? `<app_card>\n${appCard}\n</app_card>` : null,
-    formatInstalledApps(installedApps, [task, latestUserMessage, pendingUserMessages?.join('\n')].join('\n')),
+    formatCustomToolsForPrompt(customTools),
+    formatSecretsForPrompt(secrets),
+    formatInstalledAppsForPrompt(
+      installedApps,
+      [task, latestUserMessage, pendingUserMessages?.join('\n')].join('\n'),
+    ),
     'Treat the latest user message as the current instruction. Use earlier messages, observations, and context summary only as context.',
-    canonicalCoordinateInstruction,
+    'If a recent action failed, use its feedback to choose a different recovery action; do not repeat the exact same failed action.',
+    CANONICAL_COORDINATE_INSTRUCTION,
   ].filter(Boolean) as string[]
 
   if (history.length > 0) {
     lines.push('Previous steps:')
     for (const item of history) {
-      lines.push(formatHistoryItem(item))
+      lines.push(formatPromptHistoryItem(item))
     }
   }
 
@@ -85,6 +89,33 @@ export function buildAgentPromptContext({
     history,
     latestUserMessage,
   }
+}
+
+function formatCustomToolsForPrompt(customTools?: readonly CustomToolDescriptor[]) {
+  const tools = customTools?.filter((tool) => tool.name.trim() && tool.description.trim()) ?? []
+  if (tools.length === 0) {
+    return null
+  }
+
+  return [
+    '<available_custom_tools>',
+    ...tools.map((tool) => `${tool.name}: ${tool.description}`),
+    '</available_custom_tools>',
+  ].join('\n')
+}
+
+function formatSecretsForPrompt(secrets?: readonly SecretDescriptor[]) {
+  const records = secrets?.filter((secret) => secret.id.trim()) ?? []
+  if (records.length === 0) {
+    return null
+  }
+
+  return [
+    '<available_secrets>',
+    ...records.map((secret) => `${secret.id}: ${secret.label || secret.id}`),
+    '</available_secrets>',
+    'Use type_secret with a listed secret id when a secret value must be typed. Secret values are local and are never shown to the model.',
+  ].join('\n')
 }
 
 export function historyFromRecentTurns(thread: AgentThread, maxRecentTurns = 12) {
@@ -116,6 +147,7 @@ export function compactThreadContext(
   thread.contextCompactedThroughStep = turnsToCompact.at(-1)?.index ?? thread.contextCompactedThroughStep
   for (const turn of turnsToCompact) {
     turn.compacted = true
+    turn.promptContext = ''
   }
   addThreadEvent(
     thread,
@@ -143,30 +175,31 @@ function isCompletedTurn(turn: AgentTurn) {
   return turn.status !== 'planned'
 }
 
-function formatHistoryItem(item: AgentHistoryItem) {
-  const details = [
-    item.currentApp ? `app=${item.currentApp}` : null,
-    `action=${item.actionPreview}`,
-    item.executionResult ? `result=${item.executionResult}` : null,
-  ]
-    .filter(Boolean)
-    .join(' | ')
-  return `Step ${item.step}: ${details}`
-}
-
 function formatTurnSummary(turn: AgentTurn) {
-  return formatHistoryItem(turnToHistoryItem(turn))
+  return formatPromptHistoryItem(turnToHistoryItem(turn))
 }
 
-function formatInstalledApps(installedApps?: readonly InstalledApp[], query = '') {
-  const apps = selectInstalledAppsForPrompt(installedApps, query)
-  if (apps.length === 0) {
+function formatRecentActionErrors(thread: AgentThread) {
+  const failedTurns = thread.turns
+    .filter((turn) => isCompletedTurn(turn) && (turn.status === 'failed' || turn.success === false))
+    .slice(-5)
+  if (failedTurns.length === 0) {
     return null
   }
 
-  const lines = apps.map((app) => `${getInstalledAppDisplayName(app)}: ${app.packageName}`)
-
-  return [`<installed_apps>`, ...lines, `</installed_apps>`].join('\n')
+  return [
+    '<recent_action_errors>',
+    ...failedTurns.map((turn) =>
+      [
+        `- Step ${turn.index}`,
+        `action=${turn.preview}`,
+        turn.executionResult ? `feedback=${turn.executionResult}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | '),
+    ),
+    '</recent_action_errors>',
+  ].join('\n')
 }
 
 function formatPendingUserMessages(messages?: readonly string[]) {

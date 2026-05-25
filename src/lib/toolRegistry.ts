@@ -1,5 +1,11 @@
 import type { DeviceBackend, ExecuteActionOptions } from '../adapters/deviceTypes'
 import {
+  resolveCustomTool,
+  resolveSecretValue,
+  type CustomToolDefinition,
+  type SecretRecord,
+} from './agentResources'
+import {
   evaluateActionSafety,
   type ActionSafetyContext,
   type ActionSafetyDecision,
@@ -28,7 +34,10 @@ export type ActionToolResult = {
 export type ActionToolContext = {
   device: DeviceBackend
   confirmSensitiveAction?: ExecuteActionOptions['confirmSensitiveAction']
+  customTools?: readonly CustomToolDefinition[]
   safetyContext?: ActionSafetyContext
+  secrets?: readonly SecretRecord[]
+  unrestrictedMode?: boolean
 }
 
 type ActionToolName = AgentAction['action']
@@ -76,6 +85,18 @@ const DEFAULT_ACTION_TOOL_SIGNATURES: Partial<Record<ActionToolName, ActionToolS
       },
     },
   },
+  type_secret: {
+    description: 'Type a local secret by id without exposing its value to the model.',
+    parameters: {
+      secretId: { type: 'string', required: true, description: 'Local secret id.' },
+      clear: {
+        type: 'boolean',
+        required: false,
+        default: false,
+        description: 'Clear the currently focused field before typing.',
+      },
+    },
+  },
   key: {
     description: 'Send an Android key event.',
     parameters: {
@@ -106,9 +127,19 @@ const DEFAULT_ACTION_TOOL_SIGNATURES: Partial<Record<ActionToolName, ActionToolS
     },
   },
   wait: {
-    description: 'Wait without touching the device.',
+    description: 'Wait without touching the device. Useful for animations, page loads, or time-based operations.',
     parameters: {
-      ms: { type: 'number', required: true, description: 'Milliseconds to wait.' },
+      duration: {
+        type: 'number',
+        required: false,
+        default: 1.0,
+        description: 'Seconds to wait.',
+      },
+      ms: {
+        type: 'number',
+        required: false,
+        description: 'Legacy milliseconds to wait.',
+      },
     },
   },
   take_over: {
@@ -121,6 +152,13 @@ const DEFAULT_ACTION_TOOL_SIGNATURES: Partial<Record<ActionToolName, ActionToolS
     description: 'Record an observation without touching the device.',
     parameters: {
       message: { type: 'string', required: true },
+    },
+  },
+  custom_tool: {
+    description: 'Run a configured local custom tool and return its result.',
+    parameters: {
+      tool: { type: 'string', required: true, description: 'Configured custom tool name.' },
+      input: { type: 'object', required: false, description: 'Tool input payload.' },
     },
   },
   done: {
@@ -170,6 +208,13 @@ export class ActionToolRegistry {
   async execute(action: AgentAction, context: ActionToolContext): Promise<ActionToolResult> {
     const toolName = action.action
     if (action.action === 'interact') {
+      if (context.unrestrictedMode) {
+        return {
+          toolName,
+          success: true,
+          summary: `Ignored manual interaction request in unrestricted mode: ${action.message}`,
+        }
+      }
       return {
         toolName,
         success: false,
@@ -182,7 +227,7 @@ export class ActionToolRegistry {
         toolName,
         success: false,
         summary: `Unsupported call_api action: ${action.instruction}`,
-        safetyDecision: 'take_over',
+        ...(context.unrestrictedMode ? {} : { safetyDecision: 'take_over' as const }),
       }
     }
 
@@ -203,7 +248,9 @@ export class ActionToolRegistry {
       }
     }
 
-    const safety = evaluateActionSafety(action, context.safetyContext)
+    const safety = context.unrestrictedMode
+      ? ({ decision: 'allow' } as const)
+      : evaluateActionSafety(action, context.safetyContext)
     if (safety.decision === 'block' || safety.decision === 'take_over') {
       return {
         toolName,
@@ -256,12 +303,45 @@ export function createDefaultActionToolRegistry(disabledTools: readonly ActionTo
   for (const [name, signature] of Object.entries(DEFAULT_ACTION_TOOL_SIGNATURES)) {
     registry.register(name as ActionToolName, {
       ...signature,
-      execute: (action, context) =>
-        context.device.execute(action, {
-          confirmSensitiveAction: context.confirmSensitiveAction,
-        }),
+      execute: (action, context) => executeDefaultAction(action, context),
     })
   }
 
   return registry
+}
+
+async function executeDefaultAction(action: AgentAction, context: ActionToolContext) {
+  if (action.action === 'type_secret') {
+    const secret = resolveSecretValue(context.secrets ?? [], action.secretId)
+    if (!secret) {
+      throw new Error(`Secret "${action.secretId}" is not configured.`)
+    }
+    await context.device.execute({
+      action: 'input_text',
+      text: secret,
+      clear: action.clear,
+      reason: action.reason,
+    })
+    return `Typed secret "${action.secretId}".`
+  }
+
+  if (action.action === 'custom_tool') {
+    const tool = resolveCustomTool(context.customTools ?? [], action.tool)
+    if (!tool) {
+      throw new Error(`Custom tool "${action.tool}" is not configured.`)
+    }
+    return formatCustomToolResult(tool, action.input)
+  }
+
+  return context.device.execute(action, {
+    confirmSensitiveAction: context.confirmSensitiveAction,
+  })
+}
+
+function formatCustomToolResult(tool: CustomToolDefinition, input: unknown) {
+  if (input === undefined || input === null || input === '') {
+    return tool.result
+  }
+
+  return [tool.result, `<tool_input>\n${JSON.stringify(input, null, 2)}\n</tool_input>`].join('\n')
 }

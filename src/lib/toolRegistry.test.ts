@@ -37,6 +37,15 @@ describe('ActionToolRegistry', () => {
     expect(signatures.input_text.parameters.clear).toEqual(
       expect.objectContaining({ required: false, type: 'boolean', default: false }),
     )
+    expect(signatures.type_secret.parameters.secretId).toEqual(
+      expect.objectContaining({ required: true, type: 'string' }),
+    )
+    expect(signatures.custom_tool.parameters.tool).toEqual(
+      expect.objectContaining({ required: true, type: 'string' }),
+    )
+    expect(signatures.wait.parameters.duration).toEqual(
+      expect.objectContaining({ required: false, type: 'number', default: 1.0 }),
+    )
     expect(signatures).not.toHaveProperty('interact')
     expect(signatures).not.toHaveProperty('call_api')
   })
@@ -90,6 +99,30 @@ describe('ActionToolRegistry', () => {
     expect(device.executed).toEqual([])
   })
 
+  it('bypasses local safety policy in unrestricted mode', async () => {
+    const device = fakeDevice()
+    const registry = createDefaultActionToolRegistry()
+    const confirmSensitiveAction = vi.fn(async () => false)
+
+    const result = await registry.execute(
+      { action: 'tap', x: 100, y: 200 },
+      {
+        device,
+        confirmSensitiveAction,
+        safetyContext: { task: 'Pay now and place order' },
+        unrestrictedMode: true,
+      },
+    )
+
+    expect(result).toEqual({
+      success: true,
+      summary: 'tap executed',
+      toolName: 'tap',
+    })
+    expect(confirmSensitiveAction).not.toHaveBeenCalled()
+    expect(device.executed).toEqual(['tap'])
+  })
+
   it('asks for local safety confirmation without relying on model risk metadata', async () => {
     const device = fakeDevice()
     const registry = createDefaultActionToolRegistry()
@@ -135,6 +168,74 @@ describe('ActionToolRegistry', () => {
       summary: 'Unsupported call_api action: summarize notes',
       toolName: 'call_api',
       safetyDecision: 'take_over',
+    })
+    expect(device.executed).toEqual([])
+  })
+
+  it('types configured secrets without leaking the value in the result', async () => {
+    const device = fakeDevice()
+    const registry = createDefaultActionToolRegistry()
+
+    const result = await registry.execute(
+      { action: 'type_secret', secretId: 'gmail_password', clear: true },
+      {
+        device,
+        secrets: [{ id: 'gmail_password', label: 'Gmail password', value: 'super-secret' }],
+      },
+    )
+
+    expect(result).toEqual({
+      success: true,
+      summary: 'Typed secret "gmail_password".',
+      toolName: 'type_secret',
+    })
+    expect(device.execute).toHaveBeenCalledWith({
+      action: 'input_text',
+      text: 'super-secret',
+      clear: true,
+      reason: undefined,
+    })
+    expect(result.summary).not.toContain('super-secret')
+  })
+
+  it('runs configured local custom tools', async () => {
+    const device = fakeDevice()
+    const registry = createDefaultActionToolRegistry()
+
+    const result = await registry.execute(
+      { action: 'custom_tool', tool: 'lookup_order', input: { id: '123' } },
+      {
+        device,
+        customTools: [
+          {
+            name: 'lookup_order',
+            description: 'Lookup a local order fixture.',
+            result: 'Order 123 is ready.',
+          },
+        ],
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.toolName).toBe('custom_tool')
+    expect(result.summary).toContain('Order 123 is ready.')
+    expect(result.summary).toContain('"id": "123"')
+    expect(device.executed).toEqual([])
+  })
+
+  it('does not request takeover for legacy interact actions in unrestricted mode', async () => {
+    const device = fakeDevice()
+    const registry = createDefaultActionToolRegistry()
+
+    await expect(
+      registry.execute(
+        { action: 'interact', message: 'choose an account' },
+        { device, unrestrictedMode: true },
+      ),
+    ).resolves.toEqual({
+      success: true,
+      summary: 'Ignored manual interaction request in unrestricted mode: choose an account',
+      toolName: 'interact',
     })
     expect(device.executed).toEqual([])
   })

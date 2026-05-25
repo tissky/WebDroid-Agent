@@ -5,20 +5,20 @@ import {
   fitDimensionsToMaxSide,
   mapActionCoordinates,
   modelScreenshotView,
-} from './screenshotCoordinates'
+} from './coordinates'
 
 describe('fitDimensionsToMaxSide', () => {
   it('keeps small screenshots unchanged', () => {
-    expect(fitDimensionsToMaxSide({ width: 1080, height: 1920 })).toEqual({
-      width: 1080,
-      height: 1920,
+    expect(fitDimensionsToMaxSide({ width: 720, height: 1280 })).toEqual({
+      width: 720,
+      height: 1280,
     })
   })
 
   it('scales the longest side down to the model limit', () => {
     expect(fitDimensionsToMaxSide({ width: 1080, height: 2316 })).toEqual({
-      width: 955,
-      height: 2048,
+      width: 716,
+      height: 1536,
     })
   })
 })
@@ -27,7 +27,7 @@ describe('chooseGridDivisions', () => {
   it('adapts grid density to the model screenshot size', () => {
     expect(chooseGridDivisions({ width: 360, height: 720 })).toBe(6)
     expect(chooseGridDivisions({ width: 900, height: 1600 })).toBe(8)
-    expect(chooseGridDivisions({ width: 955, height: 2048 })).toBe(10)
+    expect(chooseGridDivisions({ width: 716, height: 1536 })).toBe(8)
   })
 })
 
@@ -35,15 +35,15 @@ describe('buildScreenshotContext', () => {
   it('describes the model coordinate space and native device mapping', () => {
     expect(
       buildScreenshotContext({
-        modelScreen: { width: 955, height: 2048 },
+        modelScreen: { width: 716, height: 1536 },
         deviceScreen: { width: 1080, height: 2316 },
       }),
     ).toEqual({
-      model_screen_size: '955x2048',
+      model_screen_size: '716x1536',
       device_screen_size: '1080x2316',
       coordinate_mode: 'screenshot_pixels',
       coordinate_origin: 'top_left',
-      grid_divisions: 10,
+      grid_divisions: 8,
       grid_labels: 'major_lines_only',
       execution_mapping: 'model_coordinates_are_mapped_back_to_device_pixels',
       resized: true,

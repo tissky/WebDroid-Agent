@@ -7,6 +7,7 @@ import {
   type MouseEvent,
   type WheelEvent,
 } from 'react'
+import { DEFAULT_SWIPE_DURATION_MS, POINTER_SWIPE_THRESHOLD_PX } from '../lib/actionDefaults'
 import { buildActionPreview } from '../lib/actionPreview'
 import type { AgentAction } from '../lib/actionTypes'
 import type { AppCopy } from '../lib/appCopy'
@@ -136,14 +137,14 @@ export function PhoneStage({
     const end = pointerToScreenPoint(event)
     const distance = Math.hypot(end.x - dragStart.x, end.y - dragStart.y)
     setDraftAction(
-      distance > 24
+      distance > POINTER_SWIPE_THRESHOLD_PX
         ? {
             action: 'swipe',
             fromX: dragStart.x,
             fromY: dragStart.y,
             toX: end.x,
             toY: end.y,
-            durationMs: 400,
+            durationMs: DEFAULT_SWIPE_DURATION_MS,
           }
         : {
             action: 'tap',

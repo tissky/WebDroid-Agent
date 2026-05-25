@@ -12,7 +12,7 @@ import {
   startThreadTurn,
 } from '../lib/agentThread'
 import { buildInteractionStream } from '../lib/interactionStream'
-import { RunPanel } from './RunPanel'
+import { ConversationPanel } from './ConversationPanel'
 
 const screenshot: DeviceScreenshot = {
   bytes: new Uint8Array([1, 2, 3]),
@@ -20,8 +20,10 @@ const screenshot: DeviceScreenshot = {
   screen: { width: 1080, height: 2400 },
 }
 
-function renderRunPanel(overrides: Partial<Parameters<typeof RunPanel>[0]> = {}) {
-  const props: Parameters<typeof RunPanel>[0] = {
+function renderConversationPanel(
+  overrides: Partial<Parameters<typeof ConversationPanel>[0]> = {},
+) {
+  const props: Parameters<typeof ConversationPanel>[0] = {
     activeThreadId: 'thread-current',
     busyTask: null,
     chatInput: '',
@@ -42,16 +44,16 @@ function renderRunPanel(overrides: Partial<Parameters<typeof RunPanel>[0]> = {})
     ...overrides,
   }
 
-  return render(<RunPanel {...props} />)
+  return render(<ConversationPanel {...props} />)
 }
 
-describe('RunPanel', () => {
+describe('ConversationPanel', () => {
   afterEach(() => {
     cleanup()
   })
 
   it('keeps the chat composer in the chat region without advanced debug controls', () => {
-    renderRunPanel()
+    renderConversationPanel()
 
     const title = screen.getByRole('heading', { name: 'Chat' }).closest('.panel-title')
     expect(title).toBeTruthy()
@@ -72,7 +74,7 @@ describe('RunPanel', () => {
     const onDeleteThread = vi.fn()
     const onSelectThread = vi.fn()
     const onStartNewChat = vi.fn()
-    renderRunPanel({
+    renderConversationPanel({
       activeThreadId: 'thread-2',
       historySidebarOpen: true,
       onCloseHistorySidebar,
@@ -120,7 +122,7 @@ describe('RunPanel', () => {
 
   it('returns focus to the chat input after starting a new chat', () => {
     const onStartNewChat = vi.fn()
-    renderRunPanel({ onStartNewChat })
+    renderConversationPanel({ onStartNewChat })
 
     const newChatButton = screen.getByRole('button', { name: /new chat/i })
     const input = screen.getByRole('textbox', { name: /chat message/i })
@@ -135,7 +137,7 @@ describe('RunPanel', () => {
   })
 
   it('renders the conversation as a persistent chat stream with a bottom composer', () => {
-    renderRunPanel({
+    renderConversationPanel({
       conversation: [
         { id: 'u1', role: 'user', content: 'Open Settings.' },
         { id: 'o1', role: 'observation', content: 'Current app: Settings.' },
@@ -163,7 +165,7 @@ describe('RunPanel', () => {
   })
 
   it('renders chat messages as sanitized markdown', () => {
-    renderRunPanel({
+    renderConversationPanel({
       conversation: [
         {
           id: 'a1',
@@ -212,15 +214,20 @@ describe('RunPanel', () => {
       now: 1200,
     })
 
-    renderRunPanel({
+    renderConversationPanel({
       conversation: thread.messages,
       interactionItems: buildInteractionStream(thread),
     })
 
     const chatStream = screen.getByLabelText('Conversation')
-    const step = within(chatStream).getByLabelText('Step 1')
+    const step = within(chatStream).getByLabelText('Step 1: Tap')
 
+    expect(within(step).getByText('Tap')).toBeTruthy()
+    expect(within(step).getByText('#1')).toBeTruthy()
+    expect(step.querySelector('.agent-step-action-icon svg')).toBeTruthy()
     expect(within(step).getByText('Executed')).toBeTruthy()
+    expect(within(step).queryByText('input tap 120 240')).toBeNull()
+    fireEvent.click(within(step).getByText('Details'))
     expect(within(step).getByText('tap (120, 240) - open Wi-Fi')).toBeTruthy()
     expect(within(step).getByText('input tap 120 240')).toBeTruthy()
     expect(within(chatStream).queryAllByText('input tap 120 240')).toHaveLength(1)
@@ -228,7 +235,7 @@ describe('RunPanel', () => {
 
   it('submits chat with Enter while keeping Shift Enter for multiline input', () => {
     const onSubmitChatMessage = vi.fn()
-    renderRunPanel({
+    renderConversationPanel({
       chatInput: 'Open Wi-Fi settings',
       onSubmitChatMessage,
     })
@@ -244,7 +251,7 @@ describe('RunPanel', () => {
   it('shows a stop button in the send position while the agent run is active', () => {
     const onStopRun = vi.fn()
     const onSubmitChatMessage = vi.fn()
-    renderRunPanel({
+    renderConversationPanel({
       busyTask: { id: 'run-agent' },
       chatInput: 'Queue this after stop',
       onStopRun,
@@ -262,7 +269,7 @@ describe('RunPanel', () => {
   })
 
   it('explains disabled chat without showing advanced run actions or an inert execute button', () => {
-    renderRunPanel()
+    renderConversationPanel()
 
     expect(screen.getByRole('button', { name: /^send$/i }).getAttribute('title')).toBe(
       'Type a message first.',
@@ -273,21 +280,21 @@ describe('RunPanel', () => {
     expect(screen.queryByRole('button', { name: /^execute$/i })).toBeNull()
   })
 
-  it('does not keep max steps in the run panel after moving it to settings', () => {
-    renderRunPanel()
+  it('does not keep max steps in the conversation panel after moving it to settings', () => {
+    renderConversationPanel()
 
     expect(screen.queryByLabelText(/max steps/i)).toBeNull()
   })
 
   it('does not render task template controls', () => {
-    renderRunPanel()
+    renderConversationPanel()
 
     expect(screen.queryByText('Task template')).toBeNull()
     expect(screen.queryByLabelText(/task template/i)).toBeNull()
   })
 
   it('hides the pending action panel when there is no pending step', () => {
-    renderRunPanel({ pendingStep: null })
+    renderConversationPanel({ pendingStep: null })
 
     expect(document.querySelector('.pending-action')).toBeNull()
     expect(screen.queryByText('Pending action')).toBeNull()
@@ -305,7 +312,7 @@ describe('RunPanel', () => {
       preview: 'tap at 120, 240',
     } as AgentStep
 
-    renderRunPanel({ pendingStep })
+    renderConversationPanel({ pendingStep })
 
     const pendingAction = document.querySelector('.pending-action')
     expect(pendingAction).toBeTruthy()

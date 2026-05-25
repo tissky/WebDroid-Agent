@@ -1,18 +1,23 @@
 import { KeyRound } from 'lucide-react'
 import type { AppCopy } from '../lib/appCopy'
+import type { ActionProtocol } from '../lib/actionProtocol'
 import type { ModelConfig } from '../lib/openAiTypes'
 
 export type ModelPanelProps = {
+  actionProtocol: ActionProtocol
   copy: AppCopy
   modelConfig: ModelConfig
+  onActionProtocolChange: (value: ActionProtocol) => void
   onModelConfigChange: <Key extends keyof ModelConfig>(key: Key, value: ModelConfig[Key]) => void
   onStreamResponsesChange: (value: boolean) => void
   streamResponses: boolean
 }
 
 export function ModelPanel({
+  actionProtocol,
   copy,
   modelConfig,
+  onActionProtocolChange,
   onModelConfigChange,
   onStreamResponsesChange,
   streamResponses,
@@ -51,6 +56,19 @@ export function ModelPanel({
               onChange={(event) => onModelConfigChange('model', event.target.value)}
               placeholder="vision-model"
             />
+          </label>
+          <label>
+            {copy.actionProtocol}
+            <select
+              value={actionProtocol}
+              onChange={(event) => onActionProtocolChange(event.target.value as ActionProtocol)}
+            >
+              <option value="webdroid_json">{copy.actionProtocolWebDroidJson}</option>
+              <option value="open_autoglm_function">
+                {copy.actionProtocolOpenAutoGlm}
+              </option>
+              <option value="mobilerun_xml">{copy.actionProtocolMobilerunXml}</option>
+            </select>
           </label>
           <label className="toggle">
             <input

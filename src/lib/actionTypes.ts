@@ -36,6 +36,13 @@ export type InputTextAction = {
   reason?: string
 }
 
+export type TypeSecretAction = {
+  action: 'type_secret'
+  secretId: string
+  clear?: boolean
+  reason?: string
+}
+
 export type KeyAction = {
   action: 'key'
   key:
@@ -107,6 +114,13 @@ export type CallApiAction = {
   reason?: string
 }
 
+export type CustomToolAction = {
+  action: 'custom_tool'
+  tool: string
+  input?: unknown
+  reason?: string
+}
+
 export type DoneAction = {
   action: 'done'
   summary?: string
@@ -118,6 +132,7 @@ export type AgentAction =
   | SwipeAction
   | LaunchAction
   | InputTextAction
+  | TypeSecretAction
   | KeyAction
   | BackAction
   | HomeAction
@@ -128,6 +143,7 @@ export type AgentAction =
   | NoteAction
   | InteractAction
   | CallApiAction
+  | CustomToolAction
   | DoneAction
 
 export class ActionValidationError extends Error {

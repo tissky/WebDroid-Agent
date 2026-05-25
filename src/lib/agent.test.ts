@@ -8,6 +8,7 @@ import {
   recordAgentStep,
   runAgentStep,
 } from './agent'
+import { OpenAiClientError } from './openAiErrors'
 import type { OpenAiClient } from './openAiTypes'
 
 function fakeDevice(): DeviceBackend & { executed: string[] } {
@@ -249,6 +250,45 @@ describe('runAgentStep', () => {
     )
   })
 
+  it('passes only prompt-safe custom tool and secret descriptors into model requests', async () => {
+    const device = fakeDevice()
+    const client: OpenAiClient = {
+      completeAction: vi.fn(async () => '{"action":"done","summary":"finished"}'),
+    }
+
+    await runAgentStep({
+      device,
+      client,
+      customTools: [
+        {
+          name: 'lookup_order',
+          description: 'Lookup a local fixture.',
+          result: 'Local result that should not be sent in the prompt request.',
+        },
+      ],
+      secrets: [
+        {
+          id: 'gmail_password',
+          label: 'Gmail password',
+          value: 'super-secret',
+        },
+      ],
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Log in',
+    })
+
+    expect(client.completeAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customTools: [{ name: 'lookup_order', description: 'Lookup a local fixture.' }],
+        secrets: [{ id: 'gmail_password', label: 'Gmail password' }],
+        promptContext: expect.stringContaining('lookup_order: Lookup a local fixture.'),
+      }),
+    )
+    const request = vi.mocked(client.completeAction).mock.calls[0][0]
+    expect(JSON.stringify(request)).not.toContain('super-secret')
+    expect(JSON.stringify(request)).not.toContain('Local result that should not be sent')
+  })
+
   it('asks the model about preprocessed screenshot pixels and stores mapped execution coordinates', async () => {
     const device = fakePreprocessedDevice()
     const client: OpenAiClient = {
@@ -292,6 +332,48 @@ describe('runAgentStep', () => {
       expect.objectContaining({
         currentApp: 'Unknown',
         deviceState: { app: 'Unknown' },
+      }),
+    )
+  })
+
+  it('retries an empty model response with compact non-streaming context', async () => {
+    const device = fakeDevice()
+    const session = createAgentSession('Open Settings')
+    session.contextSummary = 'Earlier steps already navigated inside Settings.'
+    session.messages.push(
+      ...Array.from({ length: 24 }, (_, index) => ({
+        id: `o${index}`,
+        role: 'observation' as const,
+        content: `Executed old step ${index}`,
+      })),
+    )
+    const client: OpenAiClient = {
+      completeAction: vi
+        .fn()
+        .mockRejectedValueOnce(new OpenAiClientError('No assistant content returned by model.'))
+        .mockResolvedValueOnce('{"action":"tap","x":100,"y":200,"reason":"retry"}'),
+    }
+
+    const step = await runAgentStep({
+      device,
+      client,
+      modelConfig: {
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'key',
+        model: 'm',
+        stream: true,
+      },
+      task: 'Open Settings',
+      session,
+    })
+
+    expect(step.action).toEqual({ action: 'tap', x: 100, y: 200, reason: 'retry' })
+    expect(client.completeAction).toHaveBeenCalledTimes(2)
+    expect(client.completeAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        conversation: [],
+        stream: false,
+        promptContext: expect.stringContaining('previous model response'),
       }),
     )
   })
@@ -342,6 +424,49 @@ describe('createAgentRunner', () => {
 
     expect(result.status).toBe('awaiting_review')
     expect(device.executed).toEqual([])
+  })
+
+  it('feeds recoverable execution failures back into the next model step', async () => {
+    const device = fakeDevice()
+    vi.mocked(device.execute).mockRejectedValueOnce(new Error('tap failed: stale coordinates'))
+    const session = createAgentSession('Open app')
+    const client: OpenAiClient = {
+      completeAction: vi.fn(async () => {
+        if (vi.mocked(client.completeAction).mock.calls.length === 1) {
+          return '{"action":"tap","x":100,"y":200}'
+        }
+        return '{"action":"done","summary":"recovered"}'
+      }),
+    }
+    const runner = createAgentRunner({ device, client })
+
+    const result = await runner.run({
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Open app',
+      autoExecute: true,
+      maxSteps: 3,
+      session,
+    })
+
+    expect(result.status).toBe('done')
+    expect(client.completeAction).toHaveBeenCalledTimes(2)
+    expect(session.turns[0]).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        executionResult: 'tap failed: stale coordinates',
+        success: false,
+      }),
+    )
+    expect(client.completeAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        promptContext: expect.stringContaining('<recent_action_errors>'),
+      }),
+    )
+    expect(client.completeAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        promptContext: expect.stringContaining('tap failed: stale coordinates'),
+      }),
+    )
   })
 
   it('stops before the next step when the run signal is aborted', async () => {
@@ -442,6 +567,28 @@ describe('createAgentRunner', () => {
     expect(device.executed).toEqual([])
   })
 
+  it('continues through takeover actions in unrestricted mode', async () => {
+    const device = fakeDevice()
+    const client: OpenAiClient = {
+      completeAction: vi
+        .fn()
+        .mockResolvedValueOnce('{"action":"Take_over","message":"login required"}')
+        .mockResolvedValueOnce('{"action":"done","summary":"finished"}'),
+    }
+    const runner = createAgentRunner({ device, client })
+
+    const result = await runner.run({
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Open app',
+      autoExecute: true,
+      maxSteps: 5,
+      unrestrictedMode: true,
+    })
+
+    expect(result.status).toBe('done')
+    expect(device.executed).toEqual(['take_over'])
+  })
+
   it('stops instead of executing legacy interact actions', async () => {
     const device = fakeDevice()
     const client: OpenAiClient = {
@@ -481,6 +628,28 @@ describe('createAgentRunner', () => {
     expect(result.status).toBe('awaiting_takeover')
     expect(result.reason).toContain('manual takeover')
     expect(device.executed).toEqual([])
+  })
+
+  it('bypasses local safety takeover decisions in unrestricted mode', async () => {
+    const device = fakeDevice()
+    const client: OpenAiClient = {
+      completeAction: vi
+        .fn()
+        .mockResolvedValueOnce('{"action":"input_text","text":"123456"}')
+        .mockResolvedValueOnce('{"action":"done","summary":"finished"}'),
+    }
+    const runner = createAgentRunner({ device, client })
+
+    const result = await runner.run({
+      modelConfig: { baseUrl: 'https://api.example.com/v1', apiKey: 'key', model: 'm' },
+      task: 'Enter the verification code',
+      autoExecute: true,
+      maxSteps: 5,
+      unrestrictedMode: true,
+    })
+
+    expect(result.status).toBe('done')
+    expect(device.executed).toEqual(['input_text'])
   })
 
   it('stops at the max step limit', async () => {

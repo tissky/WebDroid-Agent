@@ -7,11 +7,13 @@ export type DeviceOptionsSectionProps = {
   doubleTapIntervalMs: number
   keyboardStepMs: number
   preferAdbKeyboard: boolean
+  unrestrictedMode: boolean
   onActionSettleMsChange: (value: number) => void
   onConfirmSensitiveActionsChange: (value: boolean) => void
   onDoubleTapIntervalMsChange: (value: number) => void
   onKeyboardStepMsChange: (value: number) => void
   onPreferAdbKeyboardChange: (value: boolean) => void
+  onUnrestrictedModeChange: (value: boolean) => void
   sectionId?: string
 }
 
@@ -22,11 +24,13 @@ export function DeviceOptionsSection({
   doubleTapIntervalMs,
   keyboardStepMs,
   preferAdbKeyboard,
+  unrestrictedMode,
   onActionSettleMsChange,
   onConfirmSensitiveActionsChange,
   onDoubleTapIntervalMsChange,
   onKeyboardStepMsChange,
   onPreferAdbKeyboardChange,
+  onUnrestrictedModeChange,
   sectionId,
 }: DeviceOptionsSectionProps) {
   return (
@@ -45,9 +49,18 @@ export function DeviceOptionsSection({
           <input
             type="checkbox"
             checked={confirmSensitiveActions}
+            disabled={unrestrictedMode}
             onChange={(event) => onConfirmSensitiveActionsChange(event.target.checked)}
           />
           <span>{copy.confirmSensitiveActions}</span>
+        </label>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={unrestrictedMode}
+            onChange={(event) => onUnrestrictedModeChange(event.target.checked)}
+          />
+          <span>{copy.unrestrictedMode}</span>
         </label>
         <div className="timing-grid">
           <label>

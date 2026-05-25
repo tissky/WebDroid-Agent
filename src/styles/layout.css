@@ -127,7 +127,7 @@ h2 {
   color: var(--warn);
 }
 
-.settings-button {
+.topbar-button {
   background: transparent;
   border: 0;
   border-radius: 12px;
@@ -137,7 +137,8 @@ h2 {
   padding: 0 10px;
 }
 
-.settings-button:hover:not(:disabled) {
+.topbar-button:hover:not(:disabled),
+.topbar-button.active {
   background: var(--button-bg);
   color: var(--text);
 }

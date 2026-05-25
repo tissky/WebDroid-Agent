@@ -1,0 +1,90 @@
+.doctor-results {
+  background: var(--subtle-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.doctor-results > strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.doctor-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.doctor-check {
+  align-items: start;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding-top: 8px;
+}
+
+.doctor-check:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.doctor-check > span {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  min-width: 54px;
+  padding: 5px 6px;
+  text-align: center;
+}
+
+.doctor-check.ok > span {
+  background: var(--status-ok-bg);
+  border-color: var(--status-ok-border);
+  color: var(--status-ok-text);
+}
+
+.doctor-check.warn > span {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.doctor-check.error > span {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.doctor-check.skipped > span {
+  background: var(--status-bg);
+}
+
+.doctor-check div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.doctor-check strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.doctor-check p,
+.doctor-check small {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.doctor-check small {
+  color: var(--text-secondary);
+}

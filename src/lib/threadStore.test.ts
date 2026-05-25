@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { createAgentThread, recordThreadUserMessage } from './agentThread'
+import type { DeviceScreenshot } from '../adapters/deviceTypes'
+import type { AgentAction } from './actionTypes'
+import { createAgentThread, recordThreadUserMessage, startThreadTurn } from './agentThread'
 import {
   createMemoryThreadStore,
   createSettingsSnapshot,
 } from './threadStore'
 
+const screenshot: DeviceScreenshot = {
+  bytes: new Uint8Array([1, 2, 3]),
+  dataUrl: 'data:image/png;base64,raw',
+  modelDataUrl: 'data:image/png;base64,model',
+  modelScreen: { width: 540, height: 1200 },
+  screen: { width: 1080, height: 2400 },
+}
+
 describe('thread store', () => {
-  it('saves, loads, lists, and deletes persisted threads', async () => {
+  it('saves, loads, lists, deletes, and clears persisted threads', async () => {
     const store = createMemoryThreadStore()
     const first = createAgentThread('First task', { id: 'thread-1', now: 1000 })
     const second = createAgentThread('Second task', { id: 'thread-2', now: 2000 })
@@ -25,6 +35,12 @@ describe('thread store', () => {
 
     expect(await store.load('thread-2')).toBeNull()
     expect(await store.loadLatest()).toEqual(first)
+
+    await store.clear()
+
+    expect(await store.load('thread-1')).toBeNull()
+    expect(await store.loadLatest()).toBeNull()
+    expect(await store.list()).toEqual([])
   })
 
   it('stores a snapshot clone instead of the mutable source object', async () => {
@@ -39,6 +55,55 @@ describe('thread store', () => {
     expect(loaded?.messages.map((message) => message.content)).toEqual(['Mutable task'])
   })
 
+  it('compacts screenshot media when cloning stored threads', async () => {
+    const store = createMemoryThreadStore()
+    const thread = createAgentThread('Use screen', { id: 'thread-screenshot', now: 1000 })
+    const action: AgentAction = { action: 'tap', x: 100, y: 200 }
+    const turn = startThreadTurn(thread, {
+      id: 'turn-screenshot',
+      index: 1,
+      task: 'Use screen',
+      promptContext: 'prompt',
+      modelOutput: '{"action":"tap","x":100,"y":200}',
+      action,
+      executionAction: action,
+      preview: 'tap (100, 200)',
+      deviceSnapshot: {
+        currentApp: 'Chrome',
+        deviceState: { app: 'Chrome' },
+        screenshot,
+      },
+      timing: { captureMs: 1, currentAppMs: 2, modelMs: 3, parseMs: 4, totalMs: 10 },
+      now: 1100,
+    })
+    turn.deviceSnapshot.screenshot = screenshot
+    const snapshotEvent = thread.events.find((event) => event.type === 'device_snapshot')
+    if (snapshotEvent?.type === 'device_snapshot') {
+      snapshotEvent.screenshot = screenshot
+    }
+    thread.lastScreenshot = screenshot
+    thread.deviceSnapshot = {
+      currentApp: 'Chrome',
+      deviceState: { app: 'Chrome' },
+      screenshot,
+    }
+
+    await store.save(thread)
+    const loaded = await store.load('thread-screenshot')
+
+    expect(loaded?.lastScreenshot).toEqual({
+      dataUrl: 'data:image/png;base64,model',
+      modelScreen: { width: 540, height: 1200 },
+      screen: { width: 1080, height: 2400 },
+    })
+    expect(loaded?.lastScreenshot?.bytes).toBeUndefined()
+    expect(loaded?.lastScreenshot?.modelDataUrl).toBeUndefined()
+    expect(loaded?.turns[0].deviceSnapshot.screenshot).toBeUndefined()
+    expect(loaded?.events.find((event) => event.type === 'device_snapshot')).not.toHaveProperty(
+      'screenshot',
+    )
+  })
+
   it('creates redacted settings snapshots without API keys', () => {
     const snapshot = createSettingsSnapshot({
       modelConfig: {
@@ -50,6 +115,7 @@ describe('thread store', () => {
       autoExecute: true,
       maxSteps: 12,
       confirmSensitiveActions: true,
+      unrestrictedMode: true,
       preferAdbKeyboard: false,
       actionSettleMs: 700,
       doubleTapIntervalMs: 80,
@@ -65,6 +131,7 @@ describe('thread store', () => {
       autoExecute: true,
       maxSteps: 12,
       confirmSensitiveActions: true,
+      unrestrictedMode: true,
       preferAdbKeyboard: false,
       actionSettleMs: 700,
       doubleTapIntervalMs: 80,

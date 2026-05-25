@@ -1,0 +1,102 @@
+.tutorial-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px var(--shadow);
+  display: grid;
+  gap: 16px;
+  margin: 0 auto 18px;
+  max-width: 1520px;
+  padding: 18px;
+}
+
+.tutorial-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.tutorial-header p:last-child {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 7px 0 0;
+  max-width: 720px;
+}
+
+.tutorial-steps {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tutorial-steps li {
+  background: var(--subtle-bg);
+  border: 1px solid var(--surface-muted-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr;
+  min-height: 176px;
+  padding: 14px;
+  position: relative;
+}
+
+.tutorial-step-number {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 999px;
+  color: var(--on-primary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.tutorial-step-icon {
+  align-items: center;
+  color: var(--accent);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tutorial-steps h3,
+.tutorial-notes h3 {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.tutorial-steps p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.tutorial-notes {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.tutorial-notes h3 {
+  color: var(--accent-soft-text);
+}
+
+.tutorial-notes ul {
+  color: var(--text-secondary);
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}

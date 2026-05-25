@@ -1,4 +1,4 @@
-import { isAdbKeyboardInstalled } from '../adapters/deviceCommands'
+import { isAdbKeyboardInstalled } from '../adapters/adbKeyboard'
 import type { DeviceBackend, DeviceInfo, DeviceScreenshot, DeviceState } from '../adapters/deviceTypes'
 import { normalizeBaseUrl } from './openAiClient'
 import type { ModelConfig } from './openAiTypes'

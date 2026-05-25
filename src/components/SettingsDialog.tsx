@@ -2,40 +2,82 @@ import {
   AlertTriangle,
   Code2,
   ExternalLink,
+  FileJson,
   Gauge,
   GitFork,
+  HardDrive,
+  KeyRound,
   Languages,
+  MessageSquareX,
   Monitor,
+  MonitorOff,
+  RotateCcw,
+  ScrollText,
   Star,
+  Trash2,
+  Wrench,
   X,
 } from 'lucide-react'
 import type { AppCopy } from '../lib/appCopy'
 import { REPOSITORY_URL, type RepositoryStats } from '../lib/repository'
 import type { LanguageMode, ThemeMode } from '../lib/settings'
+import type { StorageEstimateStatus, StorageUsageEstimate } from '../hooks/useStorageEstimate'
 
 export type SettingsDialogProps = {
+  appCardsJson: string
+  appCardsJsonError: string | null
   copy: AppCopy
+  customToolsJson: string
+  customToolsJsonError: string | null
   languageMode: LanguageMode
   maxSteps: number
+  screenBlackoutDuringAutoControl: boolean
+  onAppCardsJsonChange: (value: string) => void
+  onScreenBlackoutDuringAutoControlChange: (value: boolean) => void
+  onCustomToolsJsonChange: (value: string) => void
   onLanguageModeChange: (value: LanguageMode) => void
+  onClearChatHistory: () => void
+  onClearRunLog: () => void
   onClose: () => void
   onMaxStepsChange: (value: number) => void
+  onResetAppCards: () => void
+  onSecretRecordsJsonChange: (value: string) => void
   onThemeModeChange: (value: ThemeMode) => void
   repositoryStats: RepositoryStats | null
   repositoryStatsStatus: 'idle' | 'loading' | 'done' | 'error'
+  storageEstimate: StorageUsageEstimate | null
+  storageEstimateStatus: StorageEstimateStatus
+  secretRecordsJson: string
+  secretRecordsJsonError: string | null
   themeMode: ThemeMode
 }
 
 export function SettingsDialog({
+  appCardsJson,
+  appCardsJsonError,
   copy,
+  customToolsJson,
+  customToolsJsonError,
   languageMode,
   maxSteps,
+  screenBlackoutDuringAutoControl,
+  onAppCardsJsonChange,
+  onScreenBlackoutDuringAutoControlChange,
+  onCustomToolsJsonChange,
   onLanguageModeChange,
+  onClearChatHistory,
+  onClearRunLog,
   onClose,
   onMaxStepsChange,
+  onResetAppCards,
+  onSecretRecordsJsonChange,
   onThemeModeChange,
   repositoryStats,
   repositoryStatsStatus,
+  storageEstimate,
+  storageEstimateStatus,
+  secretRecordsJson,
+  secretRecordsJsonError,
   themeMode,
 }: SettingsDialogProps) {
   return (
@@ -103,6 +145,98 @@ export function SettingsDialog({
             onChange={(event) => onMaxStepsChange(Number(event.target.value))}
           />
         </label>
+        <label
+          className="settings-field settings-toggle-field"
+          title={copy.screenBlackoutDuringAutoControlHelp}
+        >
+          <span>
+            <MonitorOff size={16} />
+            {copy.screenBlackoutDuringAutoControl}
+          </span>
+          <input
+            type="checkbox"
+            checked={screenBlackoutDuringAutoControl}
+            onChange={(event) =>
+              onScreenBlackoutDuringAutoControlChange(event.target.checked)
+            }
+          />
+        </label>
+        <section className="settings-storage" aria-label={copy.localCache}>
+          <div>
+            <span>
+              <HardDrive size={16} />
+              {copy.localCache}
+            </span>
+            <strong>{formatStorageStatus(storageEstimate, storageEstimateStatus, copy)}</strong>
+          </div>
+          {storageEstimateStatus === 'done' && storageEstimate?.quotaBytes ? (
+            <meter
+              aria-label={copy.localCacheUsage}
+              min={0}
+              max={storageEstimate.quotaBytes}
+              value={storageEstimate.usageBytes}
+            />
+          ) : null}
+        </section>
+        <section className="settings-data-management" aria-label={copy.dataManagement}>
+          <div className="settings-data-management-title">
+            <Trash2 size={16} />
+            <span>{copy.dataManagement}</span>
+          </div>
+          <div className="settings-data-actions">
+            <button type="button" className="danger" onClick={onClearChatHistory}>
+              <MessageSquareX size={16} />
+              {copy.clearChatHistory}
+            </button>
+            <button type="button" onClick={onClearRunLog}>
+              <ScrollText size={16} />
+              {copy.clearRunLog}
+            </button>
+          </div>
+        </section>
+        <section className="settings-resource-management" aria-label={copy.appCards}>
+          <div className="settings-resource-title">
+            <FileJson size={16} />
+            <span>{copy.appCards}</span>
+            <button type="button" onClick={onResetAppCards}>
+              <RotateCcw size={15} />
+              {copy.resetAppCards}
+            </button>
+          </div>
+          <textarea
+            value={appCardsJson}
+            onChange={(event) => onAppCardsJsonChange(event.target.value)}
+            spellCheck={false}
+            aria-label={copy.appCardsJson}
+          />
+          {appCardsJsonError ? <p className="settings-error">{appCardsJsonError}</p> : null}
+        </section>
+        <section className="settings-resource-management" aria-label={copy.secrets}>
+          <div className="settings-resource-title">
+            <KeyRound size={16} />
+            <span>{copy.secrets}</span>
+          </div>
+          <textarea
+            value={secretRecordsJson}
+            onChange={(event) => onSecretRecordsJsonChange(event.target.value)}
+            spellCheck={false}
+            aria-label={copy.secretsJson}
+          />
+          {secretRecordsJsonError ? <p className="settings-error">{secretRecordsJsonError}</p> : null}
+        </section>
+        <section className="settings-resource-management" aria-label={copy.customTools}>
+          <div className="settings-resource-title">
+            <Wrench size={16} />
+            <span>{copy.customTools}</span>
+          </div>
+          <textarea
+            value={customToolsJson}
+            onChange={(event) => onCustomToolsJsonChange(event.target.value)}
+            spellCheck={false}
+            aria-label={copy.customToolsJson}
+          />
+          {customToolsJsonError ? <p className="settings-error">{customToolsJsonError}</p> : null}
+        </section>
         <p className="settings-copy">{copy.appDescription}</p>
         <a
           className="repository-link"
@@ -150,4 +284,40 @@ export function SettingsDialog({
       </section>
     </div>
   )
+}
+
+function formatStorageStatus(
+  storageEstimate: StorageUsageEstimate | null,
+  status: StorageEstimateStatus,
+  copy: AppCopy,
+) {
+  if (status === 'loading' || status === 'idle') {
+    return copy.localCacheLoading
+  }
+  if (status === 'unsupported') {
+    return copy.localCacheUnavailable
+  }
+  if (status === 'error' || !storageEstimate) {
+    return copy.localCacheError
+  }
+
+  const usage = formatBytes(storageEstimate.usageBytes)
+  const quota = storageEstimate.quotaBytes ? formatBytes(storageEstimate.quotaBytes) : null
+  return quota ? copy.localCacheUsageOf(usage, quota) : copy.localCacheUsageOnly(usage)
+}
+
+function formatBytes(bytes: number) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+  let value = Math.max(0, bytes)
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  const maximumFractionDigits = value >= 10 || unitIndex === 0 ? 0 : 1
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value)} ${
+    units[unitIndex]
+  }`
 }
